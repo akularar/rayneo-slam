@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.akular.poseprobe">
+
+    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="31" />
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+
+    <!-- Android 11+ package visibility: needed to see/bind the RayNeo runtime -->
+    <queries>
+        <package android:name="com.rayneo.xr.runtime" />
+    </queries>
+
+    <application
+        android:label="PoseProbe"
+        android:hasCode="true"
+        android:extractNativeLibs="true">
+
+        <!-- Marks this as a RayNeo AR app for Glass OS -->
+        <meta-data android:name="com.rayneo.mercury.app" android:value="true" />
+
+        <activity
+            android:name="com.akular.poseprobe.PoseProbeActivity"
+            android:exported="true"
+            android:screenOrientation="landscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

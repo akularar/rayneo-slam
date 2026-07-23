@@ -202,29 +202,57 @@ public class PoseProbeActivity extends Activity {
         private final float[] kL = {1494.03f, 1505.34f, 320f, 240f};
         private final float[] kR = {1494.51f, 1501.43f, 320f, 240f};
 
-        private static final float S = 0.25f;     // cube half-size -> 0.5 m cube
-        private static final float DIST = 2.0f;   // anchor distance (0.5 m cube ~fits 24deg FOV)
         private static final float NEAR = 0.10f;
 
-        private static final int[][] EDGES = {
-                {0,1},{0,2},{0,4},{1,3},{1,5},{2,3},
-                {2,6},{3,7},{4,5},{4,6},{5,7},{6,7}};
+        // --- Unity "Slam.unity" scene replica (values read from the scene file,
+        // which overrides SlamDemoCtrl.cs defaults): 12x12 grid, 0.8 m spacing,
+        // cubes 0.1 m/side at y=-0.3, all sharing the prefab rotation
+        // euler(-60,-30,50). Grid centre = SLAM world origin (tracking start). ---
+        private static final int   GRID    = 12;
+        private static final float SPACING = 0.8f;
+        private static final float CUBE_Y  = -0.3f;
+        private static final float S       = 0.05f;   // half-size -> 0.1 m cube
 
         // quads; vertex i has x=(i&1), y=(i&2), z=(i&4) sign
         private static final int[][] FACES = {
-                {0,1,3,2},   // -Z  dark blue
-                {4,5,7,6},   // +Z  blue
-                {0,1,5,4},   // -Y  dark green
-                {2,3,7,6},   // +Y  green
-                {0,2,6,4},   // -X  dark red
-                {1,3,7,5}};  // +X  red
-        private static final int[] FACE_COLORS = {
-                0xFF1A1A66, 0xFF3333CC,
-                0xFF1A661A, 0xFF33CC33,
-                0xFF661A1A, 0xFFCC3333};
+                {0,1,3,2},   // -Z
+                {4,5,7,6},   // +Z
+                {0,1,5,4},   // -Y
+                {2,3,7,6},   // +Y
+                {0,2,6,4},   // -X
+                {1,3,7,5}};  // +X
+        // per-face brightness, fakes lighting so the shared-rotation cubes read as 3D
+        private static final float[] FACE_SHADE = {0.45f, 0.9f, 0.35f, 1f, 0.55f, 0.75f};
+
+        /** Prefab rotation from Slam.unity (euler -60,-30,50), local->world. */
+        private static final float[] CUBE_R =
+                quatToR(new float[]{-0.53521216f, -0.0027692902f, 0.2438928f, 0.8087377f});
+        /** The 8 rotated corner offsets, metres. */
+        private static final float[][] CORNER = corners();
+        private static float[][] corners() {
+            float[][] c = new float[8][3];
+            for (int i = 0; i < 8; i++) {
+                float lx = (i & 1) != 0 ? S : -S;
+                float ly = (i & 2) != 0 ? S : -S;
+                float lz = (i & 4) != 0 ? S : -S;
+                c[i][0] = CUBE_R[0]*lx + CUBE_R[1]*ly + CUBE_R[2]*lz;
+                c[i][1] = CUBE_R[3]*lx + CUBE_R[4]*ly + CUBE_R[5]*lz;
+                c[i][2] = CUBE_R[6]*lx + CUBE_R[7]*ly + CUBE_R[8]*lz;
+            }
+            return c;
+        }
+
+        /** Stable pseudo-random colour per cube (Unity uses a random-colour material). */
+        private static final int[] CUBE_COLOR = new int[GRID * GRID];
+        static {
+            float[] hsv = {0f, 0.85f, 1f};
+            for (int i = 0; i < CUBE_COLOR.length; i++) {
+                hsv[0] = (i * 47) % 360;
+                CUBE_COLOR[i] = Color.HSVToColor(hsv);
+            }
+        }
 
         private volatile float[] tHead, qHead;
-        private float[] anchor;
         private final int preset = 3;   // SOLVED: q is world->head, flip Y, no flip Z
 
         /**
@@ -233,10 +261,9 @@ public class PoseProbeActivity extends Activity {
          */
         private static final int tz = -1;
 
-        /** Head position when the cube was last anchored, for the on-screen ruler. */
+        /** Head position at the last tap, for the on-screen movement ruler. */
         private float[] origin;
 
-        private final Paint edge = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint face = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path facePath = new Path();
         private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -247,7 +274,6 @@ public class PoseProbeActivity extends Activity {
         CubeView(Context c) {
             super(c);
             setBackgroundColor(Color.BLACK);
-            edge.setColor(Color.GRAY);    edge.setStrokeWidth(3f);
             face.setStyle(Paint.Style.FILL);
             text.setColor(Color.WHITE);   text.setTextSize(30f);
             label.setColor(Color.YELLOW); label.setTextSize(34f);
@@ -262,7 +288,7 @@ public class PoseProbeActivity extends Activity {
         @Override
         public boolean onTouchEvent(MotionEvent e) {
             if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                reanchor();         // re-place cube ahead and zero the ruler
+                origin = tw();      // zero the movement ruler
                 postInvalidate();
                 return true;
             }
@@ -274,7 +300,7 @@ public class PoseProbeActivity extends Activity {
                     && !Float.isNaN(t[0]) && !Float.isNaN(t[1]) && !Float.isNaN(t[2])
                     && !(q[0] == 0 && q[1] == 0 && q[2] == 0 && q[3] == 0);
             tHead = t; qHead = q;
-            if (valid && anchor == null) reanchor();
+            if (valid && origin == null) origin = tw();
             postInvalidate();
         }
 
@@ -282,17 +308,6 @@ public class PoseProbeActivity extends Activity {
         private float[] tw() {
             float[] t = tHead;
             return t == null ? null : new float[]{t[0], t[1], tz * t[2]};
-        }
-
-        /** Place cube DIST metres ahead of current gaze, using current preset. */
-        private void reanchor() {
-            float[] t = tw(), q = qHead;
-            if (t == null || q == null) return;
-            float[] Rhw = transpose(worldToHead(q, preset)); // head->world
-            float fx = Rhw[2], fy = Rhw[5], fz = Rhw[8];     // body +Z in world
-            float s = sz(preset);
-            anchor = new float[]{t[0] + s*fx*DIST, t[1] + s*fy*DIST, t[2] + s*fz*DIST};
-            origin = t;
         }
 
         @Override
@@ -313,56 +328,49 @@ public class PoseProbeActivity extends Activity {
 
             float[] t = tw(), q = qHead;
             String hud;
-            if (t == null || q == null || anchor == null) {
+            if (t == null || q == null || origin == null) {
                 hud = "SLAM: waiting for localization\n(wear + move to bootstrap)";
             } else {
                 float[] Rwh = worldToHead(q, preset);
-                float[][] uv = new float[8][];
-                for (int i = 0; i < 8; i++) {
-                    float wx = anchor[0] + ((i & 1) != 0 ? S : -S);
-                    float wy = anchor[1] + ((i & 2) != 0 ? S : -S);
-                    float wz = anchor[2] + ((i & 4) != 0 ? S : -S);
-                    uv[i] = project(wx, wy, wz, t, Rwh, K, xoff);
-                }
-                // solid faces, painter's algorithm: farthest first. A face with any
-                // vertex behind the near plane is skipped (no clipping).
-                float[] depth = new float[6];
-                int[] order = {0, 1, 2, 3, 4, 5};
-                for (int f = 0; f < 6; f++) {
-                    float d = 0; boolean ok = true;
-                    for (int vi : FACES[f]) {
-                        if (uv[vi] == null) { ok = false; break; }
-                        d += uv[vi][2];
+
+                // cull to this eye's frustum, then paint cubes far -> near
+                int n = 0;
+                float[] depth = new float[GRID * GRID];
+                int[] ord = new int[GRID * GRID];
+                for (int i = 0; i < GRID; i++) {
+                    for (int j = 0; j < GRID; j++) {
+                        float cx = SPACING * (i - GRID / 2);
+                        float cz = SPACING * (j - GRID / 2);
+                        float[] p = project(cx, CUBE_Y, cz, t, Rwh, K, xoff);
+                        if (p == null) continue;                 // behind near plane
+                        float r = 2f * K[0] * S / p[2];          // screen-space radius
+                        if (p[0] < xoff - r || p[0] > xoff + halfW + r
+                                || p[1] < -r || p[1] > h + r) continue;
+                        int id = i * GRID + j;
+                        depth[id] = p[2];
+                        ord[n++] = id;
                     }
-                    depth[f] = ok ? d : Float.NEGATIVE_INFINITY;
                 }
-                for (int i = 0; i < 6; i++)          // tiny N: bubble sort, desc depth
-                    for (int j = i + 1; j < 6; j++)
-                        if (depth[order[j]] > depth[order[i]]) {
-                            int tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+                for (int a = 0; a < n; a++)          // small n: selection sort, desc depth
+                    for (int b = a + 1; b < n; b++)
+                        if (depth[ord[b]] > depth[ord[a]]) {
+                            int tmp = ord[a]; ord[a] = ord[b]; ord[b] = tmp;
                         }
-                for (int f : order) {
-                    if (depth[f] == Float.NEGATIVE_INFINITY) continue;
-                    int[] vs = FACES[f];
-                    facePath.reset();
-                    facePath.moveTo(uv[vs[0]][0], uv[vs[0]][1]);
-                    for (int k = 1; k < 4; k++) facePath.lineTo(uv[vs[k]][0], uv[vs[k]][1]);
-                    facePath.close();
-                    face.setColor(FACE_COLORS[f]);
-                    cv.drawPath(facePath, face);
+                for (int k = 0; k < n; k++) {
+                    int id = ord[k];
+                    float cx = SPACING * (id / GRID - GRID / 2);
+                    float cz = SPACING * (id % GRID - GRID / 2);
+                    drawCube(cv, cx, CUBE_Y, cz, CUBE_COLOR[id], t, Rwh, K, xoff);
                 }
-                for (int[] e : EDGES) {
-                    float[] a = uv[e[0]], b = uv[e[1]];
-                    if (a != null && b != null) cv.drawLine(a[0], a[1], b[0], b[1], edge);
-                }
-                float[] c = project(anchor[0], anchor[1], anchor[2], t, Rwh, K, xoff);
-                // world-axis triad at the anchor: +X red, +Y green, +Z blue
+
+                // world-axis triad at the grid centre: +X red, +Y green, +Z blue
+                float[] c = project(0, 0, 0, t, Rwh, K, xoff);
                 int[] cols = {Color.RED, Color.GREEN, Color.BLUE};
                 String[] nms = {"X", "Y", "Z"};
                 for (int a = 0; a < 3; a++) {
-                    float[] tip = project(anchor[0] + (a == 0 ? AXIS : 0),
-                                          anchor[1] + (a == 1 ? AXIS : 0),
-                                          anchor[2] + (a == 2 ? AXIS : 0), t, Rwh, K, xoff);
+                    float[] tip = project(a == 0 ? AXIS : 0,
+                                          a == 1 ? AXIS : 0,
+                                          a == 2 ? AXIS : 0, t, Rwh, K, xoff);
                     if (c == null || tip == null) continue;
                     axis.setColor(cols[a]);
                     cv.drawLine(c[0], c[1], tip[0], tip[1], axis);
@@ -371,13 +379,13 @@ public class PoseProbeActivity extends Activity {
                 // ruler: how far the app thinks you have walked since the last tap
                 float dx = t[0] - origin[0], dy = t[1] - origin[1], dz = t[2] - origin[2];
                 hud = String.format("moved  X%+.2f  Y%+.2f  Z%+.2f", dx, dy, dz)
-                        + String.format("\ndist %.2f m   (cube %.2f m)",
-                                Math.sqrt(dx*dx + dy*dy + dz*dz), dist(t, anchor))
-                        + (c == null ? "\ncube BEHIND" : "");
+                        + String.format("\ndist %.2f m   (grid centre %.2f m)",
+                                Math.sqrt(dx*dx + dy*dy + dz*dz),
+                                Math.sqrt(t[0]*t[0] + t[1]*t[1] + t[2]*t[2]));
             }
 
             // big preset label
-            String lbl = "tap = re-anchor + zero";
+            String lbl = "tap = zero ruler";
             cv.drawText(lbl, xoff + 8, h * 0.08f + label.getTextSize(), label);
 
             float ty = h * 0.08f + label.getTextSize() + text.getTextSize() * 1.6f;
@@ -388,9 +396,45 @@ public class PoseProbeActivity extends Activity {
             cv.restore();
         }
 
-        private static double dist(float[] a, float[] b) {
-            float dx = a[0]-b[0], dy = a[1]-b[1], dz = a[2]-b[2];
-            return Math.sqrt(dx*dx + dy*dy + dz*dz);
+        /** One solid cube: painter's algorithm over its 6 faces. A face with any
+         *  vertex behind the near plane is skipped (no clipping). */
+        private void drawCube(Canvas cv, float wx, float wy, float wz, int color,
+                              float[] t, float[] Rwh, float[] K, int xoff) {
+            float[][] uv = new float[8][];
+            for (int i = 0; i < 8; i++)
+                uv[i] = project(wx + CORNER[i][0], wy + CORNER[i][1], wz + CORNER[i][2],
+                        t, Rwh, K, xoff);
+            float[] fd = new float[6];
+            int[] order = {0, 1, 2, 3, 4, 5};
+            for (int f = 0; f < 6; f++) {
+                float d = 0; boolean ok = true;
+                for (int vi : FACES[f]) {
+                    if (uv[vi] == null) { ok = false; break; }
+                    d += uv[vi][2];
+                }
+                fd[f] = ok ? d : Float.NEGATIVE_INFINITY;
+            }
+            for (int a = 0; a < 6; a++)              // tiny N: selection sort, desc depth
+                for (int b = a + 1; b < 6; b++)
+                    if (fd[order[b]] > fd[order[a]]) {
+                        int tmp = order[a]; order[a] = order[b]; order[b] = tmp;
+                    }
+            for (int f : order) {
+                if (fd[f] == Float.NEGATIVE_INFINITY) continue;
+                int[] vs = FACES[f];
+                facePath.reset();
+                facePath.moveTo(uv[vs[0]][0], uv[vs[0]][1]);
+                for (int k = 1; k < 4; k++) facePath.lineTo(uv[vs[k]][0], uv[vs[k]][1]);
+                facePath.close();
+                face.setColor(shade(color, FACE_SHADE[f]));
+                cv.drawPath(facePath, face);
+            }
+        }
+
+        private static int shade(int c, float f) {
+            return Color.rgb((int) (Color.red(c) * f),
+                             (int) (Color.green(c) * f),
+                             (int) (Color.blue(c) * f));
         }
 
         private float[] project(float wx, float wy, float wz,

@@ -33,6 +33,9 @@ public class PoseProbeActivity extends Activity {
 
     private static final String TAG = "PoseProbe";
 
+    /** true = per-tick pose logging + the SLAM probe thread; off for showcase/battery. */
+    private static final boolean DEBUG = false;
+
     private FFalconXRClient client;
     private GLSurfaceView glView;
     private GlRenderer renderer;
@@ -56,12 +59,21 @@ public class PoseProbeActivity extends Activity {
         glView.setEGLConfigChooser(8, 8, 8, 0, 16, 0);
         renderer = new GlRenderer(this);
         glView.setRenderer(renderer);
-        hud = new HudView(this, renderer);
-        FrameLayout root = new FrameLayout(this);
-        root.addView(glView);
-        root.addView(hud);
-        setContentView(root);
-        root.setSystemUiVisibility(
+        // draw only when a new pose arrives (poll rate), not every vsync
+        glView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+
+        View content;
+        if (HudView.SHOW_HUD) {
+            hud = new HudView(this, renderer);
+            FrameLayout root = new FrameLayout(this);
+            root.addView(glView);
+            root.addView(hud);
+            content = root;
+        } else {
+            content = glView;   // no overlay layer to composite/invalidate
+        }
+        setContentView(content);
+        content.setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
@@ -137,7 +149,7 @@ public class PoseProbeActivity extends Activity {
         else Log.e(TAG, "EnableSlamHeadTracker FAILED: " + SlamShim.err(r));
 
         // If the prop only takes once XR is up, this second attempt catches it.
-        new Thread(() -> {
+        if (DEBUG) new Thread(() -> {
             nap(1500);
             Log.i(TAG, "post-XR readback=0x" + Integer.toHexString(SlamShim.getPropInt("trackerAlgorithm")));
             for (int i = 0; i < 10; i++) { nap(1000); Log.i(TAG, "PROBE st=" + SlamShim.status()); }
@@ -172,10 +184,10 @@ public class PoseProbeActivity extends Activity {
                     try { quat = p.GetQuaternion(); } catch (Throwable ignore) {}
                 }
             }
-            renderer.setPose(pos, quat);
-            hud.postInvalidate();
+            if (renderer.setPose(pos, quat)) glView.requestRender();
+            if (hud != null) hud.postInvalidate();
             long now = System.currentTimeMillis();
-            if (pos != null && quat != null && now - lastPoseLog > 200) {
+            if (DEBUG && pos != null && quat != null && now - lastPoseLog > 200) {
                 lastPoseLog = now;
                 // A/B: is the native read (the path Unity uses) less drifty than the
                 // Java one? Log both from the same tick so one walk decides it.

@@ -48,14 +48,16 @@ class GlRenderer implements GLSurfaceView.Renderer {
 
     // --- Unity "Slam.unity" scene replica (see CLAUDE.md): 12x12 grid,
     // 0.8 m spacing, 0.1 m cubes at y=-0.3, shared prefab rotation. ---
-    private static final int   GRID    = 12;
+    private static final int   GRID    = 4;    // minimal grid (16 cubes); was 12 (144)
     private static final float SPACING = 0.8f;
     private static final float CUBE_Y  = -0.3f;
     private static final float S       = 0.05f;
 
-    // quads; vertex i has x=(i&1), y=(i&2), z=(i&4) sign
+    // quads; vertex i has x=(i&1), y=(i&2), z=(i&4) sign. All 6 are wound
+    // CCW-outward (consistent winding is required for back-face culling; the
+    // -Z/+Y/-X faces were reversed from the old mixed-winding set to match).
     private static final int[][] FACES = {
-            {0,1,3,2}, {4,5,7,6}, {0,1,5,4}, {2,3,7,6}, {0,2,6,4}, {1,3,7,5}};
+            {2,3,1,0}, {4,5,7,6}, {0,1,5,4}, {6,7,3,2}, {4,6,2,0}, {1,3,7,5}};
     // per-face brightness, fakes lighting so the shared-rotation cubes read as 3D
     private static final float[] FACE_SHADE = {0.45f, 0.9f, 0.35f, 1f, 0.55f, 0.75f};
 
@@ -89,6 +91,21 @@ class GlRenderer implements GLSurfaceView.Renderer {
     private int surfW, surfH;
     private boolean loggedFrame;
 
+    // per-frame scratch, reused so onDrawFrame allocates nothing
+    private final float[] fRwh = new float[9];
+    private final float[] fT = new float[3];
+    private final float[] fView = new float[16];
+    private final float[] fVp = new float[16];
+    private final float[] fMvp = new float[16];
+    private final float[] fProjL = new float[16];   // constant per surface
+    private final float[] fProjR = new float[16];
+
+    // pose-change gate for RENDERMODE_WHEN_DIRTY: only redraw on a new pose
+    private final float[] lastT = new float[3];
+    private final float[] lastQ = new float[4];
+    private boolean havePose;
+    private static final float POSE_EPS = 1e-5f;
+
     private static class GlPart {
         int vbo, ibo, tex, idxCount;
         float[] baseColor;
@@ -98,13 +115,26 @@ class GlRenderer implements GLSurfaceView.Renderer {
 
     // ------------------------------------------------------------------ pose
 
-    void setPose(float[] t, float[] q) {
+    /** @return true if this is a new, different pose (caller should requestRender). */
+    boolean setPose(float[] t, float[] q) {
         boolean valid = t != null && q != null && t.length >= 3 && q.length >= 4
                 && !Float.isNaN(t[0]) && !Float.isNaN(t[1]) && !Float.isNaN(t[2])
                 && !(q[0] == 0 && q[1] == 0 && q[2] == 0 && q[3] == 0);
-        if (!valid) return;
+        if (!valid) return false;
         tHead = t; qHead = q;
+        boolean changed = !havePose
+                || diff(t[0], lastT[0]) || diff(t[1], lastT[1]) || diff(t[2], lastT[2])
+                || diff(q[0], lastQ[0]) || diff(q[1], lastQ[1])
+                || diff(q[2], lastQ[2]) || diff(q[3], lastQ[3]);
+        if (changed) {
+            lastT[0] = t[0]; lastT[1] = t[1]; lastT[2] = t[2];
+            lastQ[0] = q[0]; lastQ[1] = q[1]; lastQ[2] = q[2]; lastQ[3] = q[3];
+            havePose = true;
+        }
+        return changed;
     }
+
+    private static boolean diff(float a, float b) { return Math.abs(a - b) > POSE_EPS; }
 
     /** Head position in the rotation's world frame, null until localized. */
     float[] tw() {
@@ -118,7 +148,8 @@ class GlRenderer implements GLSurfaceView.Renderer {
     public void onSurfaceCreated(GL10 unused, EGLConfig config) {
         GLES20.glClearColor(0f, 0f, 0f, 1f);
         GLES20.glEnable(GLES20.GL_DEPTH_TEST);
-        GLES20.glDisable(GLES20.GL_CULL_FACE);   // depth buffer does the work
+        GLES20.glEnable(GLES20.GL_CULL_FACE);    // faces are CCW-outward; halves grid fill
+        GLES20.glFrontFace(GLES20.GL_CW);        // view's diag(1,-1,1) flips visible winding
         GLES20.glDisable(GLES20.GL_BLEND);
 
         colorProg = program(
@@ -159,6 +190,9 @@ class GlRenderer implements GLSurfaceView.Renderer {
     @Override
     public void onSurfaceChanged(GL10 unused, int w, int h) {
         surfW = w; surfH = h;
+        int half = w / 2;
+        proj(K_L, half, h, fProjL);    // intrinsics + eye size are fixed -> compute once
+        proj(K_R, half, h, fProjR);
         Log.i(TAG, "GL surface " + w + "x" + h);
     }
 
@@ -167,22 +201,22 @@ class GlRenderer implements GLSurfaceView.Renderer {
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
 
-        float[] t = tw(), q = qHead;
-        if (t == null || q == null) return;   // HUD shows "waiting"
+        float[] th = tHead, q = qHead;
+        if (th == null || q == null) return;   // HUD shows "waiting"
+        fT[0] = th[0]; fT[1] = th[1]; fT[2] = tz * th[2];
 
         // preset 3: q is head->world in a Z-flipped frame -> world->head = R([x,y,-z,w])
-        float[] Rwh = quatToR(new float[]{q[0], q[1], -q[2], q[3]});
-        float[] V = view(Rwh, t);
+        quatToR(q[0], q[1], -q[2], q[3], fRwh);
+        view(fRwh, fT, fView);
 
         int half = surfW / 2;
         GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
-        float[] vp = new float[16];
         for (int eye = 0; eye < 2; eye++) {
             int xoff = eye * half;
             GLES20.glViewport(xoff, 0, half, surfH);
             GLES20.glScissor(xoff, 0, half, surfH);
-            Matrix.multiplyMM(vp, 0, proj(eye == 0 ? K_L : K_R, half, surfH), 0, V, 0);
-            drawScene(vp);
+            Matrix.multiplyMM(fVp, 0, eye == 0 ? fProjL : fProjR, 0, fView, 0);
+            drawScene(fVp);
         }
         if (!loggedFrame) {
             loggedFrame = true;
@@ -193,20 +227,18 @@ class GlRenderer implements GLSurfaceView.Renderer {
 
     // ------------------------------------------------------------- matrices
 
-    /** CV intrinsics -> GL projection (column-major). cx,cy == half centre. */
-    private static float[] proj(float[] K, int w, int h) {
-        float[] m = new float[16];
+    /** CV intrinsics -> GL projection (column-major), into m. cx,cy == half centre.
+     *  m keeps its zero entries between calls (they are never written elsewhere). */
+    private static void proj(float[] K, int w, int h, float[] m) {
         m[0] = 2f * K[0] / w;
         m[5] = -2f * K[1] / h;                    // v grows down -> NDC y up
         m[10] = (FAR + NEAR) / (FAR - NEAR);
         m[11] = 1f;                               // w_clip = +camZ (Z forward)
         m[14] = -2f * FAR * NEAR / (FAR - NEAR);
-        return m;
     }
 
-    /** World -> camera: cam = S*Rwh*(p - t), S = diag(1,-1,1). Column-major. */
-    private static float[] view(float[] Rwh, float[] t) {
-        float[] v = new float[16];
+    /** World -> camera: cam = S*Rwh*(p - t), S = diag(1,-1,1). Column-major, into v. */
+    private static void view(float[] Rwh, float[] t, float[] v) {
         v[0] = Rwh[0]; v[4] = Rwh[1]; v[8]  = Rwh[2];
         v[1] = -Rwh[3]; v[5] = -Rwh[4]; v[9] = -Rwh[5];
         v[2] = Rwh[6]; v[6] = Rwh[7]; v[10] = Rwh[8];
@@ -214,18 +246,21 @@ class GlRenderer implements GLSurfaceView.Renderer {
         v[13] = -(v[1]*t[0] + v[5]*t[1] + v[9]*t[2]);
         v[14] = -(v[2]*t[0] + v[6]*t[1] + v[10]*t[2]);
         v[15] = 1f;
-        return v;
     }
 
     private static float[] quatToR(float[] q) {
-        float x = q[0], y = q[1], z = q[2], w = q[3];
+        float[] r = new float[9];
+        quatToR(q[0], q[1], q[2], q[3], r);
+        return r;
+    }
+
+    private static void quatToR(float x, float y, float z, float w, float[] r) {
         float n = (float) Math.sqrt(x*x + y*y + z*z + w*w);
         if (n > 1e-6f) { x/=n; y/=n; z/=n; w/=n; }
         float xx=x*x, yy=y*y, zz=z*z, xy=x*y, xz=x*z, yz=y*z, wx=w*x, wy=w*y, wz=w*z;
-        return new float[]{
-                1-2*(yy+zz), 2*(xy-wz),   2*(xz+wy),
-                2*(xy+wz),   1-2*(xx+zz), 2*(yz-wx),
-                2*(xz-wy),   2*(yz+wx),   1-2*(xx+yy)};
+        r[0]=1-2*(yy+zz); r[1]=2*(xy-wz);   r[2]=2*(xz+wy);
+        r[3]=2*(xy+wz);   r[4]=1-2*(xx+zz); r[5]=2*(yz-wx);
+        r[6]=2*(xz-wy);   r[7]=2*(yz+wx);   r[8]=1-2*(xx+yy);
     }
 
     private static float[] norm3(float x, float y, float z) {
@@ -258,10 +293,9 @@ class GlRenderer implements GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(cACol);
 
         if (modelParts.isEmpty()) return;
-        float[] mvp = new float[16];
-        Matrix.multiplyMM(mvp, 0, vp, 0, modelM, 0);
+        Matrix.multiplyMM(fMvp, 0, vp, 0, modelM, 0);
         GLES20.glUseProgram(texProg);
-        GLES20.glUniformMatrix4fv(tUMvp, 1, false, mvp, 0);
+        GLES20.glUniformMatrix4fv(tUMvp, 1, false, fMvp, 0);
         GLES20.glUniform3fv(tULight, 1, LIGHT_DIR, 0);
         GLES20.glUniform1i(tUTex, 0);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);

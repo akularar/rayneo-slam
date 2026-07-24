@@ -50,10 +50,11 @@ echo "== [3/7] d8 -> classes.dex =="
   --output "$(W "$OUT/dex")" \
   "$(W "$OUT/app.jar")" "$(W "$CLIENT_JAR")"
 
-echo "== [4/7] aapt2 link (manifest only) =="
+echo "== [4/7] aapt2 link (manifest + assets) =="
 "$AAPT2" link \
   -I "$(W "$ANDROID_JAR")" \
   --manifest "$(W "$MANIFEST")" \
+  -A "$(W "$PROJ/app/assets")" \
   --min-sdk-version 30 --target-sdk-version 31 \
   -o "$(W "$OUT/base.apk")"
 

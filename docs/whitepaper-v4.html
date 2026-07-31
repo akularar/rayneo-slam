@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Native Six-Degree-of-Freedom Rendering on See-Through Glasses Without a Game Engine</title>
+</head>
+<body>
+<title>Native Six-Degree-of-Freedom Rendering on See-Through Glasses Without a Game Engine</title>
+<style>
+  :root {
+    --paper:#ffffff; --ink:#111111; --ink2:#333333; --grey:#5c5c5c;
+    --green:#5f8468; --gline:#4f7358; --gbg:#f0f5f0; --glabel:#3f5f47;
+    --measure:33em; --serif:"Times New Roman",Times,Georgia,serif;
+  }
+  :root[data-theme="dark"], :root[data-theme="light"] {
+    --paper:#ffffff; --ink:#111111; --ink2:#333333; --grey:#5c5c5c;
+    --green:#5f8468; --gline:#4f7358; --gbg:#f0f5f0; --glabel:#3f5f47;
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; color-scheme:light; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:var(--serif); font-size:18px; line-height:1.5; }
+  .sheet { max-width:720px; margin:0 auto; padding:clamp(1.6rem,4vw,3.6rem) clamp(1.1rem,5vw,2rem) 5rem; }
+
+  h1,h2,h3 { font-weight:700; color:var(--ink); }
+  h1 { font-size:1.6rem; line-height:1.22; margin:0 0 .5rem; text-wrap:balance; }
+  h2 { font-size:1.24rem; line-height:1.25; margin:2.6rem 0 .5rem; text-wrap:balance; }
+  h3 { font-size:1rem; font-weight:700; margin:1.4rem 0 .2rem; }
+
+  p { margin:0 0 .85rem; max-width:var(--measure); }
+  p.first { margin-top:.3rem; }
+  .subtitle { font-size:1.1rem; font-style:italic; color:var(--ink2); max-width:var(--measure); margin:0 0 1.4rem; line-height:1.35; }
+  .byline { font-size:.95rem; color:var(--ink2); margin:0 0 .2rem; max-width:var(--measure); }
+  .byline .aff { color:var(--grey); }
+  .docmeta { font-size:.86rem; color:var(--grey); margin:.6rem 0 1.8rem; max-width:var(--measure); }
+
+  .abstract { max-width:var(--measure); margin:1.6rem 0 1.2rem; }
+  .abstract .h { font-weight:700; font-size:.95rem; margin:0 0 .3rem; }
+  .abstract p { font-size:.97rem; }
+  .keywords { font-size:.9rem; color:var(--ink2); max-width:var(--measure); margin:.6rem 0 0; }
+  .keywords .h { font-style:italic; }
+
+  ul,ol { max-width:var(--measure); padding-left:1.3rem; margin:0 0 .85rem; }
+  li { margin-bottom:.35rem; }
+  a { color:var(--ink); text-decoration:underline; text-decoration-thickness:.5px; text-underline-offset:2px; }
+
+  .note { max-width:var(--measure); margin:1.3rem 0; padding:.7rem 0 .7rem 1rem; border-left:2px solid var(--gline); background:var(--gbg); }
+  .note .lab { font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; font-weight:700; color:var(--glabel); margin:0 0 .35rem; }
+  .note p { font-size:.92rem; margin-bottom:.5rem; max-width:none; }
+  .note p:last-child { margin-bottom:0; }
+
+  figure { margin:2.2rem 0; max-width:var(--measure); }
+  figure.wide { max-width:100%; }
+  .art { padding:.2rem 0; overflow-x:auto; }
+  figure svg { display:block; width:100%; height:auto; max-width:600px; margin:0 auto; }
+  figcaption { font-size:.86rem; color:var(--ink2); margin-top:.5rem; line-height:1.4; }
+  figcaption .fn { font-weight:700; color:var(--ink); }
+
+  table.eval { border-collapse:collapse; width:100%; max-width:var(--measure); margin:1rem 0 1.2rem; font-size:.9rem; }
+  table.eval caption { text-align:left; font-size:.86rem; color:var(--ink2); margin-bottom:.4rem; }
+  table.eval th, table.eval td { text-align:left; padding:.32rem .6rem .32rem 0; vertical-align:top; border-bottom:1px solid #e2e2e2; }
+  table.eval th { font-weight:700; border-bottom:1px solid #999; }
+  table.eval td.v { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .ph { color:var(--grey); font-style:italic; }
+
+  .refs { max-width:var(--measure); }
+  .refs ol { padding-left:2.2rem; }
+  .refs li { font-size:.85rem; line-height:1.4; margin-bottom:.5rem; }
+  .refs a { color:#222; word-break:break-word; }
+  .closing { max-width:var(--measure); font-size:.82rem; color:var(--grey); margin-top:2.2rem; font-style:italic; }
+
+  /* scene-illustration palette */
+  .v  { fill:#f2f2f2; stroke:#111; stroke-width:1.3; }
+  .vf { fill:#e8e8e8; stroke:#111; stroke-width:1.1; }
+  .vg { fill:#e7f0e8; stroke:#4f7358; stroke-width:1.7; }
+  .ln { stroke:#111; stroke-width:1.3; fill:none; }
+  .lng{ stroke:#4f7358; stroke-width:1.6; fill:none; }
+  .thin{ stroke:#8a8a8a; stroke-width:1; fill:none; }
+  .dsh{ stroke:#4f7358; stroke-width:1.2; stroke-dasharray:5 3; fill:none; }
+  .dgy{ stroke:#9a9a9a; stroke-width:1.1; stroke-dasharray:4 3; fill:none; }
+  .tx { fill:#111; font-family:var(--serif); font-size:13px; }
+  .ts { fill:#333; font-family:var(--serif); font-size:11.5px; }
+  .tl { fill:#5c5c5c; font-family:var(--serif); font-size:10.5px; font-style:italic; }
+  .tg { fill:#3f5f47; font-family:var(--serif); font-size:11.5px; font-weight:700; }
+
+  *:focus-visible { outline:2px solid var(--gline); outline-offset:2px; }
+  @media (max-width:640px){ body{font-size:16.5px;} }
+  @page { margin:18mm; }
+  @media print {
+    body { font-size:10.5pt; }
+    /* one centred column: the sheet carries the measure, its children fill it */
+    .sheet { max-width:38em; margin:0 auto; padding:0; }
+    p, ul, ol, .subtitle, .byline, .docmeta, .abstract, .keywords,
+    .note, figure, figcaption, .refs, .closing { max-width:100%; }
+    figure svg { max-width:100%; }
+    figure, .note { break-inside:avoid; }
+    a { text-decoration:none; color:#000; }
+  }
+</style>
+
+<div class="sheet">
+
+  <h1>Native Six-Degree-of-Freedom Rendering on Lightweight See-Through Glasses Without a Game Engine</h1>
+  <p class="subtitle">An implementation on RayNeo X3 Pro that reaches the head tracker from outside the vendor toolchain, with on-device measurements and an analysis of field use.</p>
+
+  <p class="byline">Spatial Computing and Wearables Group, KAUST, with AKULAR and Makani Parking.<br>
+  <span class="aff">Prepared under the programme &ldquo;Interacting with Digital Twins Through AI-Powered Augmented-Reality Hardware.&rdquo;</span></p>
+  <p class="docmeta">Consortium Technical Report &middot; pre-publication draft &middot; 2026.</p>
+
+  <div class="abstract">
+    <p class="h">Abstract</p>
+    <p>A head-worn display becomes useful to a field crew once a rendered mark holds its position on a real object while the wearer walks around it. Producing that behaviour on lightweight see-through glasses is hard. The public interface on these devices returns head orientation and keeps head position private. Both eye images share one physical panel, and its waveguide optics defeat a first attempt at stereo calibration. A device worn on the face carries little compute and a small battery. The common route to registered content passes through a commercial game engine and a vendor plugin, which draw power the glasses can barely spare and hide the tracker behind a managed runtime.</p>
+    <p>This report describes a working implementation on RayNeo X3 Pro binocular glasses. A signed third-party application, with no game engine linked, draws three-dimensional content that keeps its place in a room as the wearer circles it. Reaching that point required access to the device&rsquo;s six-degree-of-freedom head pose from outside the sanctioned toolchain, recovery of the coordinate convention its tracker reports in, a stereo projection derived from the device&rsquo;s own optical constants, and presentation through a standard Android surface. We give an account of the engineering, including the class of faults that return well-formed and incorrect answers, the acceptance procedures that separate them, and the processor and graphics load of the resulting client. We then follow the same capability from parking enforcement into maintenance inside dense data halls, with a clear line between what the hardware does today and what the wider programme will build.</p>
+  </div>
+  <p class="keywords"><span class="h">Keywords:</span> augmented reality; registration; visual-inertial odometry; head tracking; optical see-through displays; stereo rendering; digital twins; edge computing; infrastructure inspection.</p>
+
+  <h2>1. Introduction</h2>
+  <p class="first">Ask a maintenance technician where the day goes, and a large share of it turns out to be spent carrying a record back and forth to an object. A value is read on a handset. The technician looks up at a valve, a vehicle, a rack. A judgment forms. The head drops again to enter the result. Each of those crossings costs a few seconds, and each opens the door to a wrong entry or a mistaken identity.</p>
+  <p>A display worn on the head can put the record on the object and leave both hands free. The idea is as old as the first augmented-reality prototypes [13]. What has stayed hard is making it behave on glasses light enough to wear through a shift.</p>
+  <p>One behaviour carries the whole idea. A rendered mark has to appear at a chosen point in the room and stay there as the wearer moves. The augmented-reality literature calls this alignment registration [13,14]. Good registration asks the device to report, tens of times a second, where the head sits and where it points, and it asks the renderer to draw from that viewpoint quickly enough that the eye never catches the mark drifting. A phone held at arm&rsquo;s length forgives a great deal of slack. Glasses worn in front of the eyes forgive very little.</p>
+  <p>Our consortium is working toward outdoor and industrial deployments in Saudi Arabia: kerbside parking in the old city of Jeddah, bilingual heritage guidance, and bounded inspection at airport and industrial sites. In the full system, speech, a live digital twin, and a mobile robot sit over one shared coordinate frame. This report covers the component the rest of them require, stable registration on lightweight glasses with no game engine in the build. We give the result, the reasons it resisted an easy solution, the numbers we have, and an honest account of what is left.</p>
+
+  <h2>2. Engineering Contribution</h2>
+  <p class="first">This section states the result in engineering terms and marks its edges. Later sections expand each point.</p>
+  <h3>2.1&ensp;The problem</h3>
+  <p>RayNeo X3 Pro glasses ship with a documented interface that returns head orientation. Orientation on its own drives a heads-up panel that floats with the gaze. It cannot pin a mark to a physical object, because pinning needs translation: a step to the side must move the mark in the view by a matching amount, and orientation carries no such information. The device runs a full six-degree-of-freedom tracker inside a system service. Third-party developers were expected to reach it through Unity and a vendor plugin, and no public path to it existed outside that toolchain.</p>
+  <h3>2.2&ensp;Why it was hard</h3>
+  <p>The difficulty came from four directions at once, and each one has a different character.</p>
+  <p>The position stream lives behind a native service that the public interface never advertises, so recovering it took reverse engineering of the runtime. The failures in this layer are abrupt. A wrong binding to the runtime crashes the process with no diagnostic, and a wrong configuration value is accepted in silence and changes nothing.</p>
+  <p>The tracker reports its pose in a convention it never states. Reading that convention wrongly still produces a scene that renders, responds to the head, and looks correct under the motions a person naturally tests with. The errors in this layer are quiet, and they survive casual testing.</p>
+  <p>The panel carries both eye images on one physical surface, through waveguide optics that route the halves in a way a first guess gets wrong. With no engine present, the per-eye projection had to be derived from the device&rsquo;s own calibration constants and confirmed on hardware.</p>
+  <p>The compute and thermal limits of a face-worn device leave little room for a managed engine runtime to sit beside the tracker and the two displays. Power consumption became a design input in this work, at the same level as correctness, and it decided several of the choices in Section 5.</p>
+  <h3>2.3&ensp;What the work demonstrates</h3>
+  <p>A signed third-party application, with no game engine linked, obtains the six-degree-of-freedom head pose, computes a per-eye stereo projection from the device optics, and draws content through an ordinary Android surface. Rendered geometry stays fixed in the room as the wearer walks around it, and returns to the same coordinates after the wearer leaves the area and comes back, which points to a globally consistent map.</p>
+  <h3>2.4&ensp;Why it is worth reporting</h3>
+  <p>Registered rendering on this class of glasses no longer needs a commercial engine or the vendor&rsquo;s sanctioned toolchain. A native path takes a managed runtime off a power-limited device and shortens the route from a pose estimate to a drawn frame, which is the route that decides whether content sits still. Every application the programme targets, from enforcement to inspection, reuses this same capability and changes only the recognition model and the record it writes to.</p>
+
+  <figure class="wide">
+    <div class="art">
+      <svg viewBox="0 0 600 300" role="img" aria-label="An officer wearing glasses sees payment status pinned to parked cars">
+        <!-- ground -->
+        <path d="M20 262 H580" class="ln"/>
+        <path d="M120 262 L250 236" class="thin"/>
+        <!-- officer, foreground left -->
+        <path d="M60 176 L104 176 L112 262 L52 262 Z" class="v"/>
+        <circle cx="82" cy="150" r="17" class="v"/>
+        <rect x="66" y="146" width="33" height="8" rx="2" class="lng" fill="#e7f0e8"/>
+        <path d="M99 150 L332 150" class="dgy"/>
+        <text x="44" y="284" class="ts">officer</text>
+        <!-- flagged car (near) -->
+        <path d="M300 250 L300 228 Q300 223 307 221 L340 216 L362 192 Q367 187 376 187 L424 187 Q434 188 440 197 L456 216 L470 220 Q476 224 476 230 L476 250 Z" class="vg"/>
+        <circle cx="338" cy="252" r="15" class="v"/><circle cx="338" cy="252" r="5" class="vf"/>
+        <circle cx="444" cy="252" r="15" class="v"/><circle cx="444" cy="252" r="5" class="vf"/>
+        <!-- flag tag -->
+        <rect x="352" y="132" width="120" height="30" rx="4" class="lng" fill="#e7f0e8"/>
+        <text x="366" y="152" class="tg">UNPAID</text>
+        <path d="M412 162 L410 187" class="lng"/>
+        <!-- paid car (far) -->
+        <path d="M498 250 L498 234 L516 220 L548 218 L562 230 L566 234 L566 250 Z" class="vf"/>
+        <circle cx="516" cy="252" r="10" class="vf"/><circle cx="556" cy="252" r="10" class="vf"/>
+        <rect x="500" y="196" width="60" height="20" rx="3" class="thin" fill="#f6f6f6"/>
+        <text x="512" y="210" class="tl">paid</text>
+        <path d="M530 216 L528 230" class="dgy"/>
+      </svg>
+    </div>
+    <figcaption><span class="fn">Figure 1.</span> An enforcement officer sees each vehicle&rsquo;s payment status pinned to the car itself. The flagged vehicle carries its record where the officer is already looking, so identity and status arrive in the same glance.</figcaption>
+  </figure>
+
+  <h2>3. Background and Related Work</h2>
+  <p class="first">Head-mounted displays fall into two families. A video pass-through headset renders the world onto interior screens, so software owns every pixel the wearer sees. An optical see-through device places a small transparent combiner in the line of sight and adds light to a world the wearer views directly. The glasses here are the second kind. Software controls only the added light, and the real scene never reaches the frame buffer.</p>
+  <p>Position tracking on such hardware grew out of two decades of visual and visual-inertial estimation. Early real-time monocular systems set the shape of the problem [1,2]. Feature-based pipelines matured into ORB-SLAM and its successors [3,4]. Tight fusion of a camera with an inertial unit, through filtering [5] or through optimisation with preintegrated inertial terms [6,7], produced the accuracy and the tolerance for fast motion a head tracker needs; direct methods followed a parallel line [8]. RayNeo&rsquo;s runtime implements a system of this family and exposes it to Unity developers through its ARDK [20], and the interface it presents follows the conventions of the OpenXR runtime model [16]. Our work touches none of the estimation mathematics. We recovered a path to the existing estimator from outside the sanctioned toolchain and built a renderer around it.</p>
+  <p>Drawing correctly into see-through optics is a separate literature. Projection from a calibrated camera follows the standard pinhole treatment [9], with wide-angle terms where they are needed [10]. Aligning rendered content to a user&rsquo;s eye through a combiner has been studied since the single-point active alignment method, and later surveys catalogue the calibration approaches and their error sources [11,12]. The perceptual stakes are well recorded: both registration error and latency break the sense that content belongs to the scene [13,14]. Latency here carries a hard physical meaning, the time from head motion to the matching photon, and cutting it has driven dedicated display research [15].</p>
+  <p>The operational half of the programme draws on digital-twin practice for infrastructure [21,22] and on recent perception models for the recognition tasks that will sit over tracking, among them open-vocabulary image models [23], promptable segmentation [24], and multilingual speech recognition [25]. Visual positioning services such as ARCore Geospatial, Azure Spatial Anchors, and Immersal address the related outdoor-relocalisation problem and informed the wider design [26].</p>
+
+  <div class="note">
+    <p class="lab">Why satellite positioning is not enough</p>
+    <p>A satellite fix locates a receiver to within several metres and says nothing about heading. Registration needs position good to a few centimetres and orientation good to a fraction of a degree. One axis is off by two orders of magnitude; the other is absent.</p>
+    <p>Fixes also arrive slowly, drop indoors, and wander near the large metal surfaces of parked vehicles. A person turns their head faster than a receiver updates. For a mark that has to stay on an asset while the head moves, satellite positioning gives a coarse hint and no more.</p>
+  </div>
+
+  <h2>4. The Combined Tracking Problem</h2>
+  <p class="first">Any one difficulty at a real site has a known countermeasure when it arrives alone. They never arrive alone. They land on different stages of one pipeline, and because each stage feeds the next, the effects compound and the total is worse than the sum of the parts.</p>
+  <p>Picture a parking area at midday. The camera rides a head that turns quickly, which smears the image. The sun moves and drops hard shadows, so exposure swings between frames. Asphalt is a broad, repeating texture with little for a tracker to hold. Car bodies are glossy and mirror the sky, so they show bright features that belong to a reflection and to no fixed surface. Vehicles come and go, so the scene will not settle. Many of them look alike, so telling one from another at a fresh angle is genuinely uncertain.</p>
+  <p>Trace a single failure along the chain. A visual-inertial tracker reads head motion from image features. Fast motion blurs them, blur weakens the motion estimate, and a weak estimate pulls the anchor off its true point. The mark slides, the wearer moves to keep it in view, and the added motion feeds more blur back to the tracker. A reflection hands the estimator a confident feature that sits nowhere real, so the estimator trusts it and drifts toward it. A passing car removes the ground features the tracker was leaning on at the moment it is asked to hold. Failures of this kind couple through the environment, and bench numbers rarely survive the move outdoors.</p>
+
+  <div class="note">
+    <p class="lab">Why parking areas are close to a worst case</p>
+    <p>The ground is a large, flat, repeating surface with few stable landmarks. The main objects are mirror-finished and reflect a moving sky. The scene changes constantly, because the vehicles are both the content and the clutter. Look-alike vehicles leave identity from a new viewpoint uncertain.</p>
+    <p>A working lot also refuses to be scanned under kind conditions. Nobody empties it and maps it at leisure. The system has to localise in the same crowded, shifting scene it is meant to annotate.</p>
+  </div>
+
+  <p>Deciding what an object is, from one frame, is a classification that current vision models handle well. The harder task runs in time. A vehicle has to stay bound to one physical point across changing viewpoints, through partial occlusion, and across the moments when the tracker loses its place and recovers. Recognising an object once is a judgment made and finished; holding a mark on the right object, in the right place, through minutes of motion is a judgment defended every frame. A better single-frame classifier will not settle it.</p>
+  <p>The usual answer to a hard perception task is more computation, and face-worn glasses take that answer away. The camera sits on a fast-moving head, so the input is harder than a handheld feed. Compute and battery stay small, because the device has to remain light and cool enough to wear across a shift. The see-through panel offers a narrow field of view through optics with little tolerance, so a registration error has nowhere to hide. These limits set the terms for everything in the next section.</p>
+
+  <h2>5. Implementation</h2>
+  <p class="first">Six pieces of work stand between a device that reports orientation and a scene that holds its place in a room. They are described here at the level a reader needs to recognise the same obstacles on other hardware. Names of vendor libraries and symbols, dispatch offsets, and the encodings of configuration values are held back by intent, and none of them is needed to follow the argument.</p>
+
+  <h3>5.1&ensp;Reaching the position stream</h3>
+  <p>The public interface returns orientation and keeps position private. The device&rsquo;s own six-degree-of-freedom tracker runs inside a system service, and we established that an ordinary signed application can connect to that service as a client and read its output. What earlier accounts had treated as reachable only through the vendor&rsquo;s engine turned out to be reachable from a self-signed application, and the position stream now feeds the renderer at the rate the application samples it.</p>
+  <p>Calling the entry point safely required more care than locating it. It dispatches through a table of function pointers that the runtime fills during its own initialisation. An application that resolves the symbol against a private copy of the same library receives a valid handle and a table that is entirely empty, and the first call walks into a null entry and takes the process down with no diagnostic. The resolution has to bind to the copy the runtime itself initialised. Our client therefore resolves only against a mapping already present in the process, checks that the dispatch table is populated before every call, records which file the resolved symbol came from, and returns a distinct error for each way the check can fail. A failure that would otherwise terminate the process without explanation is reported as a log line naming the cause.</p>
+  <p>Switching the tracker on proved insufficient by itself. The runtime also has to be told which attitude algorithm to use, through a configuration value whose accepted encoding is not discoverable by inspection and whose obvious candidates are silently ignored. An out-of-range value produces no error and no effect. The tracker keeps running, the orientation channel keeps updating, and the position channel keeps returning a small residual displacement synthesised from head rotation, which is convincing enough to survive a casual look. Measurement identified it: a wearer walking one to two metres produced a position span of about three centimetres, and the displacement swung with head pitch and returned when the head returned, which is the signature of a lever-arm model driven by orientation. The client writes the value and reads it back before trusting it.</p>
+  <p>A third instance of the same pattern is worth recording. The vendor&rsquo;s own published binding for the pose call declares an argument list that the shipped implementation does not use; the real call takes an additional argument and orders the others differently. Called as published, it never writes the position at all and returns an orientation sampled at a meaningless time, so the output is finite, correctly normalised, and uncorrelated between frames. Read without suspicion, that looks precisely like a tracker that has not yet localised. A published interface description was wrong in a way that passed every cheap sanity check.</p>
+
+  <div class="note">
+    <p class="lab">The rule that came out of this layer</p>
+    <p>On an undocumented runtime, the absence of an error is no evidence of an effect. Every call that changes state is written and then read back, and health is judged from the tracker&rsquo;s own reported state, whose meaning we had to correct first: the value we initially read as success turned out to mean that initialisation was still in progress, so a tracker that never started looked healthy for some time.</p>
+  </div>
+
+  <h3>5.2&ensp;Recovering the pose convention</h3>
+  <p>The tracker reports a rotation and a translation and states the meaning of neither. Whether the rotation carries the head into the world or the world into the head, which handedness applies, which axis points where, and whether the translation lives in the same frame as the rotation are all left open. Every combination renders. Most of them respond to head motion in a way that looks broadly correct.</p>
+  <p>We enumerated the candidate conventions, cycled them on the device, and had a wearer describe the behaviour of a drawn set of world axes. That produced a convention that passed its tests. It was wrong, and the way it was wrong is the most instructive result in this report.</p>
+  <p>The test motions were degenerate. Under pure yaw, and under pitch while facing an anchored object, the convention we chose and the correct one give the same visible result. The two motions that separate them are head roll, and pitch performed while facing away from the anchor. Neither appears in the natural test of placing an object, walking up to it, and walking back. Both errors appear only under those motions: tilting the head sideways rotated the scene about the view axis at twice the true rate, so content that should have stayed level with the floor did not, and after walking through a scene and turning around, head pitch moved the content in the wrong direction.</p>
+  <p>Both symptoms follow from a single error. The reported rotation is expressed in a frame reflected in one axis with respect to the render frame, so the correct transform is the reported rotation conjugated by that reflection, with the same reflection applied to the translation. A conjugation of this form is invisible under symmetric motion and unmistakable under asymmetric motion, which is why the first convention survived its acceptance test. The correction preserved every earlier validated observation, resolved both new symptoms at once, and brought the rotation into agreement with a translation sign that had been settled independently, by the observation that anchored content fled the wearer on approach when the sign was inverted.</p>
+  <p>The practical lesson generalises to any integration with an undocumented pose source. Acceptance tests have to include head roll and motion performed while facing away from the anchor, from the first day. A test suite built from the motions people naturally perform will certify a whole class of frame errors as correct.</p>
+
+  <figure class="wide">
+    <div class="art">
+      <svg viewBox="0 0 600 272" role="img" aria-label="Head tilted sideways: in the failing convention the anchored cube tilts with the head; in the corrected one it stays level with the floor">
+        <!-- left: wrong -->
+        <text x="40" y="34" class="tx">Reported rotation used directly</text>
+        <path d="M30 208 H280" class="ln"/>
+        <text x="30" y="226" class="tl">floor</text>
+        <!-- tilted head -->
+        <g transform="rotate(-20 96 130)">
+          <circle cx="96" cy="130" r="24" class="v"/>
+          <rect x="72" y="124" width="48" height="11" rx="3" class="lng" fill="#e7f0e8"/>
+        </g>
+        <path d="M96 96 a34 34 0 0 1 26 12" class="dgy"/>
+        <text x="60" y="82" class="tl">head rolled</text>
+        <!-- cube tilted with head (wrong) -->
+        <g transform="rotate(-20 210 150)">
+          <polygon points="180,140 210,124 240,140 210,156" class="vf"/>
+          <polygon points="180,140 180,176 210,192 210,156" class="v"/>
+          <polygon points="240,140 240,176 210,192 210,156" class="vf"/>
+        </g>
+        <path d="M172 186 L248 168" class="dgy"/>
+        <text x="118" y="256" class="ts">content rolls with the head</text>
+        <!-- divider -->
+        <path d="M300 40 V240" class="thin"/>
+        <!-- right: correct -->
+        <text x="330" y="34" class="tx">Reflection applied to both channels</text>
+        <path d="M320 208 H570" class="ln"/>
+        <text x="320" y="226" class="tl">floor</text>
+        <g transform="rotate(-20 388 130)">
+          <circle cx="388" cy="130" r="24" class="v"/>
+          <rect x="364" y="124" width="48" height="11" rx="3" class="lng" fill="#e7f0e8"/>
+        </g>
+        <path d="M388 96 a34 34 0 0 1 26 12" class="dgy"/>
+        <text x="352" y="82" class="tl">head rolled</text>
+        <!-- cube level (correct) -->
+        <polygon points="470,140 500,124 530,140 500,156" class="vg"/>
+        <polygon points="470,140 470,176 500,192 500,156" class="vg"/>
+        <polygon points="530,140 530,176 500,192 500,156" class="vf"/>
+        <path d="M470 176 L530 176" class="dsh"/>
+        <text x="428" y="256" class="tg">content holds level</text>
+      </svg>
+    </div>
+    <figcaption><span class="fn">Figure 2.</span> The failure that exposed the frame error. Under head roll, the first convention rotated anchored content about the view axis at twice the true rate, while yaw and forward pitch had looked correct throughout. Conjugating the reported rotation by a reflection in one axis, and applying the same reflection to the translation, corrected both this symptom and a reversal of pitch that appeared only when the wearer faced away from the anchor.</figcaption>
+  </figure>
+
+  <h3>5.3&ensp;Per-eye projection from the device optics</h3>
+  <p>An engine hands the developer a ready per-eye camera. With none present, the projection had to be built from what the device publishes. The calibration arrives in computer-vision form, as focal lengths and a principal point in pixels for each eye at a resolution of 640 by 480, which corresponds to roughly 24 degrees of horizontal field of view. No projection matrix is supplied. The vendor&rsquo;s eye-to-render transform is the identity for both eyes, so the supplied calibration carries no interpupillary baseline.</p>
+  <p>The glasses present themselves to the operating system as one ordinary landscape surface. That surface is physically a side-by-side stereo buffer, with one half driving each eye through waveguide optics that route the halves in a way a first assignment gets wrong. The renderer draws one frame in two passes, setting both the viewport and the scissor rectangle to the half being drawn, so that the clear as well as the geometry stays inside one eye.</p>
+  <p>The projection is assembled directly from the intrinsics, holding the computer-vision camera convention in which the view axis points forward and the image ordinate increases downward, and folding the conversion to the display&rsquo;s normalised device coordinates into the matrix. Because the principal point sits at the centre of each half, the matrix carries no off-axis terms; a device whose principal point were offset would need them, and this is the point at which a general off-centre frustum becomes necessary. Both matrices depend on the surface size and on constants, so they are computed once when the surface is created and never touched again.</p>
+  <p>Two-dimensional overlay content follows the opposite rule. The same content is drawn into both halves, which makes the routing question irrelevant and places the overlay at optical infinity, where it carries no vergence conflict. Safe-area insets are expressed as a fraction of one half, since the field of view vignettes at the edges and an inset measured against the full surface would land in the wrong place.</p>
+  <p>The current build renders both halves from a single viewpoint, which fuses correctly at conversational distance and understates depth for near-field content. The remedy is a fixed per-eye offset along the head-right axis, and it is a contained change.</p>
+
+  <h3>5.4&ensp;The render path</h3>
+  <p>Content reaches the panel through a standard Android surface, drawn with OpenGL ES [17] and presented on the display&rsquo;s own vertical-sync signal through the platform graphics stack [18]; the native code runs under the Android NDK [19]. No managed engine runtime, no engine scene graph, and no engine frame scheduler sit in the path.</p>
+  <p>Static scene content is transformed into world coordinates once, when it is loaded, and uploaded as a single vertex buffer. A frame then costs one draw call per eye and one matrix upload, with no scene-graph traversal and no per-object transform. The only per-draw transform in the system belongs to loaded models.</p>
+  <p>One consequence of the projection derivation deserves recording, since it recurs on any device whose pose convention requires an axis flip. The view transform contains a reflection, so its determinant is negative and the apparent winding of every triangle reverses. While the renderer sorted faces by depth and drew all of them, as the first software implementation did, winding never mattered and the geometry was allowed to carry an inconsistent set of face orderings. Enabling back-face culling for power reasons made winding decisive overnight. Two changes were needed together: the geometry was rewound into one consistent outward orientation, and the renderer was told that clockwise triangles face front, which compensates for the reflection. Either change on its own renders the scene inside out. With both in place, roughly half of the triangles in the test scene never reach the rasteriser.</p>
+
+  <h3>5.5&ensp;Holding the power budget</h3>
+  <p>A conventional renderer draws on every display refresh. In this application the scene is static and the only input is the head pose, so a frame that would repeat its predecessor has no reason to exist. The surface therefore renders on demand, and a frame is requested only when a newly sampled pose differs from the previous one beyond a small threshold. Pose sampling runs at about 30 Hz on a background thread, so the render rate follows the pose rate and drops further when the wearer holds still.</p>
+  <p>The measured effect on hardware was a fall from 60 frames per second, locked to the panel, to 28.6 frames per second driven by the pose, with the graphics unit busy about 2.7 per cent of the time and the application consuming about 3 per cent of one processor. The tracking service, at about 12 per cent, remains the dominant term and is outside our control. On a device with this thermal budget, the work the application declines to do is worth more than any optimisation inside the work it performs.</p>
+  <p>Three supporting measures carry the same intent. The draw path allocates nothing: every transform buffer is preallocated and reused, so the garbage collector never runs on the render thread. Constant work is hoisted out of the frame, which is why the projection matrices are built once per surface. Diagnostic instrumentation is compiled out of the shipping configuration, and the overlay layer is omitted entirely when it carries nothing, so the compositor handles one layer in place of two; making a view invisible would have left its cost in the compositor.</p>
+
+  <div class="note">
+    <p class="lab">Why the motion-to-photon interval governs stability</p>
+    <p>The eye judges registration by one question: does the mark travel with the head or stay with the room. The measurable quantity behind that judgment is the interval from a head movement to the arrival of the matching photon on the panel. A long interval lets the mark lag the head and slide across the scene, and it provokes discomfort, since the eyes and the inner ear then disagree.</p>
+    <p>Every stage between the pose estimate and the drawn frame adds to this interval. Taking out the engine takes out stages. That is the direct link between a lean presentation path and a mark that holds where it was placed.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="art">
+      <svg viewBox="0 0 600 320" role="img" aria-label="Exploded software stack with the game engine and plugin lifted out">
+        <!-- left stack: engine-hosted -->
+        <text x="60" y="112" class="tx">Engine-hosted (typical)</text>
+        <g>
+          <!-- slab helper: front rect + top parallelogram -->
+          <!-- Application -->
+          <polygon points="70,130 92,118 242,118 220,130" class="vf"/>
+          <rect x="70" y="130" width="150" height="26" class="v"/><text x="112" y="147" class="ts">application</text>
+          <!-- Engine runtime -->
+          <polygon points="70,162 92,150 242,150 220,162" class="vf"/>
+          <rect x="70" y="162" width="150" height="26" class="v"/><text x="104" y="179" class="ts">engine runtime</text>
+          <!-- Vendor plugin -->
+          <polygon points="70,194 92,182 242,182 220,194" class="vf"/>
+          <rect x="70" y="194" width="150" height="26" class="v"/><text x="110" y="211" class="ts">vendor plugin</text>
+          <!-- Tracking service -->
+          <polygon points="70,226 92,214 242,214 220,226" class="vf"/>
+          <rect x="70" y="226" width="150" height="26" class="v"/><text x="102" y="243" class="ts">tracking service</text>
+          <!-- Panel -->
+          <polygon points="70,258 92,246 242,246 220,258" class="vf"/>
+          <rect x="70" y="258" width="150" height="26" class="v"/><text x="128" y="275" class="ts">panel</text>
+        </g>
+        <!-- lifted-out slabs -->
+        <polygon points="300,60 322,48 472,48 450,60" class="dgy" fill="#fafafa"/>
+        <rect x="300" y="60" width="150" height="24" class="dgy" fill="#fafafa"/><text x="322" y="76" class="tl">engine runtime</text>
+        <polygon points="300,96 322,84 472,84 450,96" class="dgy" fill="#fafafa"/>
+        <rect x="300" y="96" width="150" height="24" class="dgy" fill="#fafafa"/><text x="326" y="112" class="tl">vendor plugin</text>
+        <path d="M245 180 C 300 150, 320 140, 372 122" class="dgy"/>
+        <polygon points="372,122 364,120 368,129" fill="#9a9a9a"/>
+        <text x="300" y="140" class="tl">removed</text>
+
+        <!-- right stack: this work -->
+        <text x="392" y="176" class="tx">This work</text>
+        <g>
+          <polygon points="400,194 422,182 552,182 530,194" class="vf"/>
+          <rect x="400" y="194" width="130" height="26" class="v"/><text x="436" y="211" class="ts">application</text>
+          <polygon points="400,226 422,214 552,214 530,226" class="vf"/>
+          <rect x="400" y="226" width="130" height="26" class="vg"/><text x="418" y="243" class="tg">native renderer</text>
+          <polygon points="400,258 422,246 552,246 530,258" class="vf"/>
+          <rect x="400" y="258" width="130" height="26" class="v"/><text x="416" y="275" class="ts">tracking service</text>
+          <polygon points="400,290 422,278 552,278 530,290" class="vf"/>
+          <rect x="400" y="290" width="130" height="26" class="v"/><text x="450" y="307" class="ts">panel</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption><span class="fn">Figure 3.</span> The presentation path with the game engine and its vendor plugin lifted away. Removing two software layers shortens the route from a head-pose estimate to a displayed photon and lowers the resident cost on a thermally limited device.</figcaption>
+  </figure>
+
+  <h3>5.6&ensp;Content and build path</h3>
+  <p>Removing the engine removes its asset pipeline as well, so the renderer reads the standard binary glTF container directly [27], in about 300 lines that use only the platform&rsquo;s own JSON parser and image decoder. Node transforms are baked into the vertices at load time, so the draw path needs no hierarchy; normals receive the inverse-transpose treatment and are generated from face geometry when an asset omits them. Unsupported features are refused with a message in place of a silent approximation.</p>
+  <p>Two limits of this class of hardware surface directly in that loader, and an engine would have hidden both. The graphics profile carries no 32-bit index support, so wider index buffers are accepted only when every value fits the narrower type and are rejected otherwise. Mipmapping and texture repeat require power-of-two dimensions, so textures that fall outside that constraint have their filtering and wrap modes downgraded at load, in place of producing an incomplete texture that would render black.</p>
+  <p>The application builds with platform tools alone, with no engine, no build daemon, and no network access, and it installs as an ordinary Android package. For deployments that have to certify what a device does, an artefact of this size that can be read end to end is a practical asset in its own right.</p>
+
+
+  <h2>6. System Architecture</h2>
+  <p class="first">The tracker and renderer live inside a larger system laid out along two axes: how quickly a result is needed, and how sensitive the data is. Urgent or private work sits close to the wearer; only optional, non-sensitive work moves outward.</p>
+  <p>The glasses hold the head pose and the render surface, the demonstrated part of this report. The wearable owns the estimate and draws the registered content, with no engine in the path. A companion phone runs light detection and the interaction shell, carrying the speech layer and short-term task memory and routing requests to the right tier. An on-premises edge server runs heavy vision, hosts the digital twin, and keeps the audit log; writes from the field land there with a full trail. Cloud service stays disabled by default and handles only non-sensitive batch work, and then only when the latency budget allows. Sensitive streams do not cross the on-premises boundary.</p>
+  <p>One shared coordinate frame ties the tiers together. A flag a person raises and a waypoint a robot plans name the same point in the same room, because both come from the same head-tracked frame. That common frame lets a person and a machine work as one team over a single set of points. Without it, each would hold its own coordinates and the two would work past each other.</p>
+
+  <figure class="wide">
+    <div class="art">
+      <svg viewBox="0 0 600 250" role="img" aria-label="Isometric deployment: glasses, phone and edge server on premises, cloud optional">
+        <!-- ground -->
+        <polygon points="60,215 300,255 540,215 300,178" class="thin" fill="#fafafa"/>
+        <!-- on-prem boundary -->
+        <path d="M40 150 Q40 120 90 118 L470 118 Q520 120 520 150 L520 205 Q520 232 470 234 L90 234 Q40 232 40 205 Z" class="dgy"/>
+        <text x="52" y="150" class="tl">on-premises</text>
+        <!-- glasses -->
+        <g>
+          <rect x="86" y="150" width="34" height="20" rx="6" class="vg"/>
+          <rect x="132" y="150" width="34" height="20" rx="6" class="vg"/>
+          <path d="M120 160 H132" class="lng"/>
+          <path d="M86 156 L74 150 M166 156 L178 150" class="lng"/>
+        </g>
+        <text x="86" y="196" class="tg">glasses</text>
+        <text x="70" y="210" class="tl">tracking + rendering</text>
+        <!-- phone -->
+        <rect x="266" y="132" width="42" height="76" rx="6" class="v"/>
+        <rect x="272" y="140" width="30" height="52" rx="2" class="vf"/>
+        <text x="262" y="224" class="ts">phone</text>
+        <!-- edge server rack -->
+        <rect x="430" y="112" width="70" height="96" rx="3" class="v"/>
+        <path d="M430 130 H500 M430 148 H500 M430 166 H500 M430 184 H500" class="thin"/>
+        <circle cx="492" cy="121" r="2.4" fill="#4f7358"/>
+        <text x="424" y="224" class="ts">edge server</text>
+        <!-- links -->
+        <path d="M170 162 L266 168" class="ln"/>
+        <path d="M308 168 L430 160" class="ln"/>
+        <!-- cloud -->
+        <g>
+          <path d="M540 70 q-16 -22 -40 -10 q-8 -18 -30 -10 q-20 -2 -22 18 q-16 4 -10 20 h112 q14 -14 -10 -38 z" class="dgy" fill="#fbfbfb"/>
+          <text x="486" y="66" class="tl">cloud</text>
+        </g>
+        <path d="M500 84 L482 112" class="dgy"/>
+        <text x="470" y="102" class="tl">optional</text>
+      </svg>
+    </div>
+    <figcaption><span class="fn">Figure 4.</span> Where the system runs. Tracking and rendering stay on the glasses; the phone adds light detection and speech; an on-site server holds the digital twin and the audit log. Sensitive data stays inside the on-premises boundary, and cloud service is optional.</figcaption>
+  </figure>
+
+  <h2>7. Operational Example: Parking Enforcement</h2>
+  <p class="first">We walk one realistic task against the demonstrated capability and mark each step by its status. The setting is enforcement in a public parking area, the scene sketched in Figure 1.</p>
+  <p>An officer wearing the glasses approaches a row of parked cars. Registration is live, so anything the system draws will keep its place as the officer moves. <span class="ph">(Demonstrated: tracking and stable rendering.)</span> The vision layer identifies vehicles in view and reads identifying detail, a single-frame judgment. <span class="ph">(Operational target, built on established vision models.)</span> Each recognised vehicle is fixed to a point in the area&rsquo;s coordinate frame, so a mark placed on it will hold as the officer passes. <span class="ph">(Placement uses the demonstrated tracking; binding recognition to it is integration work.)</span> The system checks the vehicle&rsquo;s identity against the parking record and reports whether it has paid. <span class="ph">(Operational target: a query to the back-office record.)</span></p>
+  <p>An unpaid vehicle receives an outline and a short status label, drawn on the car and held there as the officer walks. <span class="ph">(Rendering demonstrated; the content it carries is the target.)</span> The officer looks at the car and asks for detail by voice, and the record appears in place. <span class="ph">(Operational target: speech and twin layers.)</span> A spoken word or a gesture confirms the finding; the person makes the call. <span class="ph">(By design, the operator decides.)</span> The action writes to the digital twin with an audit entry and reaches back-office systems within seconds. <span class="ph">(Operational target: twin writeback and audit.)</span> The officer moves to the next car and repeats. Several vehicles can carry marks at once, so a full row can be read in a glance.</p>
+  <p>Each step carries real difficulty. Recognition has to work through sun, shadow, reflection, and partial occlusion on a compute-limited device; localisation has to place the mark within a few centimetres so it lands on the intended car and not its neighbour; validation has to match the correct record to the correct physical object among look-alikes; and the log has to be trustworthy enough to stand as a record. The demonstrated capability answers the one step the others cannot proceed without.</p>
+
+  <div class="note">
+    <p class="lab">Demonstrated today versus operational target</p>
+    <p>Demonstrated on hardware: recovery of the six-degree-of-freedom head pose from a third-party application, a stereo projection derived from the device optics, engine-free rendering through a system surface, and registered content that holds position as the wearer circles it.</p>
+    <p>Operational target of the programme: vehicle recognition and identity, validation against records, twin writeback with audit, and the speech layer. These extend the demonstrated capability with established components, and this report does not present them as complete.</p>
+  </div>
+
+  <h2>8. Applications</h2>
+  <p class="first">Registration does not care whether the anchored object is a car, a container, or a rack. A move from one domain to another changes two things: the recognition model that names an object, and the twin schema that says what its record holds. Tracking and rendering carry across untouched, so solving the spatial problem once yields reusable machinery for many industries.</p>
+  <p>Each of the settings below is the parking loop with a different recogniser and a different record.</p>
+
+  <figure class="wide">
+    <div class="art">
+      <svg viewBox="0 0 600 250" role="img" aria-label="Ramp technician reading the status of ground support equipment beside an aircraft">
+        <!-- ground -->
+        <path d="M20 214 H580" class="ln"/>
+        <!-- fuselage right -->
+        <path d="M360 96 Q470 74 590 96 L590 168 Q470 190 360 168 Q344 132 360 96 Z" class="v"/>
+        <circle cx="430" cy="128" r="7" class="vf"/><circle cx="470" cy="126" r="7" class="vf"/><circle cx="510" cy="126" r="7" class="vf"/>
+        <path d="M362 168 L336 210 L392 210 Z" class="vf"/>
+        <text x="470" y="150" class="tl">aircraft</text>
+        <!-- belt loader (GSE) -->
+        <rect x="236" y="176" width="86" height="34" rx="3" class="v"/>
+        <path d="M300 176 L360 140 L372 148 L312 184 Z" class="v"/>
+        <circle cx="256" cy="214" r="11" class="vf"/><circle cx="304" cy="214" r="11" class="vf"/>
+        <!-- tag -->
+        <rect x="230" y="118" width="126" height="30" rx="4" class="lng" fill="#e7f0e8"/>
+        <text x="244" y="138" class="tg">GSE 12 &middot; ready</text>
+        <path d="M280 148 L276 176" class="lng"/>
+        <!-- technician -->
+        <path d="M70 150 L110 150 L118 214 L60 214 Z" class="v"/>
+        <circle cx="90" cy="126" r="15" class="v"/>
+        <rect x="75" y="122" width="30" height="7" rx="2" class="lng" fill="#e7f0e8"/>
+        <path d="M105 126 L228 130" class="dgy"/>
+        <text x="60" y="234" class="ts">ramp technician</text>
+      </svg>
+    </div>
+    <figcaption><span class="fn">Figure 5.</span> On an aircraft stand, a ramp technician reads the state of ground support equipment where it sits. The parking loop carries to the apron with only a change of recognised object and record.</figcaption>
+  </figure>
+
+  <ul>
+    <li>Airport apron work, where ground crew see aircraft, ground support equipment, and service points marked with status and turnaround timing on a busy ramp (Figure 5).</li>
+    <li>Container yards, where an operator sees a box&rsquo;s manifest and dwell time held on that box among a stack of near-identical boxes (Figure 6).</li>
+    <li>Process plants, where a technician sees a valve or pump carrying its last service date and its procedure, read at the equipment.</li>
+    <li>Campus security, where a guard sees access points and open incidents marked along a patrol route.</li>
+    <li>Warehouses, where a picker sees racks and totes labelled with contents and pick status among rows of identical shelving.</li>
+    <li>Large venues, where staff see gates, sections, and safety cues marked across the site during an event.</li>
+  </ul>
+
+  <figure class="wide">
+    <div class="art">
+      <svg viewBox="0 0 600 260" role="img" aria-label="A container yard with one box carrying its manifest among identical boxes">
+        <path d="M20 232 H580" class="ln"/>
+        <!-- container grid, slight perspective -->
+        <g>
+          <!-- row bottom -->
+          <rect x="150" y="176" width="110" height="42" class="v"/>
+          <rect x="264" y="176" width="110" height="42" class="v"/>
+          <rect x="378" y="176" width="110" height="42" class="v"/>
+          <!-- row mid: middle highlighted -->
+          <rect x="150" y="130" width="110" height="42" class="v"/>
+          <rect x="264" y="130" width="110" height="42" class="vg"/>
+          <rect x="378" y="130" width="110" height="42" class="v"/>
+          <!-- row top -->
+          <rect x="150" y="84" width="110" height="42" class="v"/>
+          <rect x="264" y="84" width="110" height="42" class="v"/>
+          <rect x="378" y="84" width="110" height="42" class="v"/>
+          <!-- corrugation ticks -->
+          <path d="M170 176 V218 M190 176 V218 M210 176 V218 M284 130 V172 M304 130 V172 M324 130 V172" class="thin"/>
+        </g>
+        <!-- tag -->
+        <rect x="300" y="44" width="170" height="30" rx="4" class="lng" fill="#e7f0e8"/>
+        <text x="314" y="64" class="tg">manifest &middot; dwell 6 d</text>
+        <path d="M330 74 L320 130" class="lng"/>
+        <!-- operator -->
+        <path d="M60 178 L96 178 L104 232 L52 232 Z" class="v"/>
+        <circle cx="78" cy="156" r="14" class="v"/>
+        <rect x="64" y="152" width="28" height="7" rx="2" class="lng" fill="#e7f0e8"/>
+        <text x="52" y="250" class="ts">yard operator</text>
+      </svg>
+    </div>
+    <figcaption><span class="fn">Figure 6.</span> In a yard of near-identical boxes, one container carries its manifest and dwell time. Position singles out the right box where a printed number on a distant end-door would not.</figcaption>
+  </figure>
+
+  <h3>8.1&ensp;High-density data centres</h3>
+  <p>A modern data hall is a corridor of near-identical racks. Finding the unit behind an alarm means matching a label in a ticket to a spot in a long cold aisle, then confirming it by reading small identifiers on the hardware, often under time pressure while a service is degraded. The task rewards spatial marking directly. A technician walks the aisle wearing the glasses; the rack behind the alarm carries a mark in place, and the failed unit inside it carries a second. The technician reads the unit&rsquo;s identity, its role, and its procedure drawn on the hardware, and logs the repair at the rack. Across a facility with thousands of identical units, binding the record to a physical position is the whole value, because a mark drawn on the unit cannot land on the wrong one.</p>
+  <p>This case sits where the capability is strongest and where satellite positioning gives nothing. A data hall is indoors, without a satellite fix, and full of repeating structure. It needs a vision-based lock on light hardware a technician can wear through a shift, with content that holds while they move down the aisle. That behaviour is what the current build shows (Figure 7).</p>
+
+  <div class="note">
+    <p class="lab">Why a registered mark beats a floating panel in a hall of racks</p>
+    <p>A heads-up panel that floats with the gaze can show the ticket text. It cannot say which of forty identical racks the ticket points to. Only content locked to a physical position can point at the rack. In a corridor of look-alikes, a floating panel reads a label while a registered mark finds the asset.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="art">
+      <svg viewBox="0 0 600 280" role="img" aria-label="A technician in a data-hall cold aisle with one rack marked">
+        <!-- vanishing perspective aisle -->
+        <path d="M40 40 L300 150 L300 250 L40 260 Z" class="v"/>
+        <path d="M560 40 L300 150 L300 250 L560 260 Z" class="v"/>
+        <!-- rack unit lines left -->
+        <path d="M120 66 L300 158 M190 88 L300 170 M250 106 L300 180" class="thin"/>
+        <path d="M120 66 L120 210 M190 88 L190 200 M250 106 L250 192" class="thin"/>
+        <!-- rack unit lines right -->
+        <path d="M480 66 L300 158 M410 88 L300 170 M350 106 L300 180" class="thin"/>
+        <path d="M480 66 L480 210 M410 88 L410 200 M350 106 L350 192" class="thin"/>
+        <!-- highlighted unit left mid-depth -->
+        <path d="M190 120 L250 136 L250 152 L190 138 Z" class="vg"/>
+        <circle cx="220" cy="110" r="4" fill="#4f7358"/>
+        <path d="M220 114 L220 128" class="lng"/>
+        <rect x="120" y="78" width="128" height="28" rx="4" class="lng" fill="#e7f0e8"/>
+        <text x="132" y="97" class="tg">unit 27 &middot; fault</text>
+        <!-- technician mid aisle -->
+        <path d="M286 196 L314 196 L320 250 L280 250 Z" class="v"/>
+        <circle cx="300" cy="178" r="12" class="v"/>
+        <rect x="288" y="175" width="24" height="6" rx="2" class="lng" fill="#e7f0e8"/>
+      </svg>
+    </div>
+    <figcaption><span class="fn">Figure 7.</span> A technician walks a cold aisle where every rack looks alike. The unit behind an alarm is marked in place, and the search for it collapses to a glance.</figcaption>
+  </figure>
+
+  <h2>9. Operational and Economic Significance</h2>
+  <p class="first">The gain from registration in operations is concrete and can be reasoned about without hype. It concerns the time crews lose to identification, the errors that identification produces, and the attention that hands-and-eyes-on-screen work takes from the task.</p>
+  <p>Identification dominates the cost at dense sites. When thousands of assets look alike, a crew spends a large share of each job matching an identifier in a work order to a physical unit, and that search grows with the count of similar assets. Drawing the record on the asset collapses the search, because the mark arrives already on the right object, and a row of assets can then be judged in one look. The same mechanism removes a common source of error: a worker who reads a handset and then turns to an asset carries an identifier in memory across the turn, and memory is where a wrong match or a mistyped entry slips in.</p>
+  <p>The value grows with the site. Small deployments see modest returns. Large infrastructure with dense, repeating assets, an airport, a container terminal, a data campus, is where identification cost runs highest and where binding records to positions returns the most. Hands-free work counts for most where stopping to read a device is unsafe or slow: on a live apron, at height, or in a cold aisle during an incident. The programme&rsquo;s pilots in parking, heritage, and bounded industrial inspection were chosen to measure these gains under real conditions ahead of wider rollout.</p>
+
+  <h2>10. Discussion</h2>
+  <p class="first">Faults in an undocumented interface separate into two classes with markedly different consequences. A fault that halts the process announces itself and admits a direct diagnosis. A fault that returns a well-formed answer does not: an ignored configuration value leaves a live position channel carrying a displacement synthesised from head rotation, a wrong argument list returns unit-length orientations that change every frame, and an incorrect frame convention produces a scene that tracks the head convincingly. All three satisfy the checks an implementation applies by default, that a value is present, finite, and varying. The design consequence is to instrument for discrimination in place of liveness, and to build the tests that separate a correct value from a plausible one.</p>
+  <p>The frame convention shows the same principle inside the acceptance procedure. Approaching an anchored object and withdrawing from it cannot separate the convention initially adopted from the correct one, since the two agree under yaw and under forward pitch. Head roll and motion performed while facing away from the anchor distinguish them, so asymmetric motion belongs in the procedure from the outset.</p>
+  <p>Device behaviour separates along a second line, between a stationary wearer and a walking one. At rest the tracker holds its estimate and recovers it after a disturbance; under brisk movement it drifts and occasionally snaps to a fresh estimate as it relocalises. That boundary belongs to the inherited estimator, and it sets the limit of the present claim: registration that holds for a wearer working at an asset, with a known weakness during rapid transit between assets.</p>
+  <p>Removing the engine was a deliberate trade. A ready camera model, a scene graph, an asset pipeline and a frame loop were given up and paid for in code, at about three hundred lines for asset loading and a comparable amount for the camera and the draw path. Against that, the application holds a quarter of the processor share of the tracking service it depends on and occupies 497 KB, and the decisive power result came from drawing less often in place of drawing faster. On hardware this constrained, removing layers returned more than any optimisation available inside an engine.</p>
+
+  <h2>11. Future Work</h2>
+  <p class="first">We separate the directions by maturity, so a reader never mistakes an intention for a result.</p>
+  <p><b>Demonstrated.</b> Engine-free registered rendering on RayNeo X3 Pro, with the six-degree-of-freedom pose recovered from a third-party application and content that holds its place while the wearer moves around it. This is the content of the present report.</p>
+  <p><b>Prototype.</b> The stereo renderer and the on-device pose loop exist as a working probe application. Four steps follow immediately. Instrument the quantities the present build leaves open, with motion-to-photon latency and a battery comparison against an equivalent engine build at the head of the list. Run a controlled comparison against the vendor&rsquo;s own engine application, reproducing its reference scene in our renderer and walking the same route in the same room under both, to establish whether the drift we see under motion belongs to the estimator or to the way our client samples and consumes its output. Add a fixed per-eye offset so that near-field content carries correct depth. Evaluate pose prediction and a late-stage reprojection of the drawn frame, both of which are standard in engine and runtime compositors and absent here, as a route to steadier content without a higher frame rate.</p>
+  <p><b>Operational target.</b> Vehicle and asset recognition, validation against back-office records, twin writeback with audit, and the bilingual speech layer, integrated over the demonstrated tracking for the parking pilot.</p>
+  <p><b>Planned.</b> A shared coordinate frame across a wearable and a mobile robot, so a location one marks is a location the other can resolve. A flag raised by a person and a waypoint planned by a robot then name the same physical point, which turns human-robot collaboration into a concrete workflow: the robot inspects what a person marked, and a person reviews what the robot found, each in place (Figure 8).</p>
+  <p><b>Research direction.</b> Semi-autonomous inspection, where a robot patrols a bounded corridor, marks anomalies at fixed points, and hands a person the marked locations for judgment. As many operators and robots write to one twin from the field, the twin becomes a live picture of a site, refreshed as crews observe, where today it holds only periodic snapshots, and a large campus gains a continuous operational view assembled from many small observations.</p>
+  <p><b>Speculative.</b> Two extensions show the reach of the same loop, offered as reasoning and not as results. In a data hall, a technician points by gaze at a rack, and the system, holding registration in a corridor of identical units, resolves which one and draws its fault and its procedure on the hardware. On a street, a worker walking or driving marks potholes and surface defects at their true positions, and a later crew or an autonomous vehicle returns to the marked coordinates. Both need only a new recognition model and a new record schema; tracking and rendering carry over unchanged.</p>
+
+  <figure class="wide">
+    <div class="art">
+      <svg viewBox="0 0 600 250" role="img" aria-label="A person and a mobile robot resolving the same marked point on a floor">
+        <!-- perspective floor grid -->
+        <path d="M60 210 L300 250 L540 210 L300 176 Z" class="thin" fill="#fafafa"/>
+        <path d="M170 193 L300 250 M430 193 L300 250 M120 200 L480 200" class="thin"/>
+        <!-- shared anchor -->
+        <path d="M300 214 l10 -14 -10 -8 -10 8 z" class="vg"/>
+        <path d="M300 200 L300 176" class="lng"/>
+        <circle cx="300" cy="172" r="4" fill="#4f7358"/>
+        <rect x="252" y="140" width="96" height="26" rx="4" class="lng" fill="#e7f0e8"/>
+        <text x="264" y="158" class="tg">shared point</text>
+        <!-- human left -->
+        <path d="M70 150 L106 150 L114 210 L58 210 Z" class="v"/>
+        <circle cx="88" cy="128" r="14" class="v"/>
+        <rect x="74" y="124" width="28" height="7" rx="2" class="lng" fill="#e7f0e8"/>
+        <path d="M104 132 L292 202" class="dgy"/>
+        <text x="60" y="230" class="ts">person</text>
+        <!-- robot right -->
+        <rect x="470" y="150" width="60" height="40" rx="4" class="v"/>
+        <rect x="486" y="126" width="10" height="26" class="v"/>
+        <circle cx="491" cy="122" r="6" class="vf"/>
+        <circle cx="484" cy="196" r="9" class="vf"/><circle cx="516" cy="196" r="9" class="vf"/>
+        <path d="M478 168 L308 200" class="dgy"/>
+        <text x="470" y="230" class="ts">mobile robot</text>
+      </svg>
+    </div>
+    <figcaption><span class="fn">Figure 8.</span> A person and a mobile robot resolve the same marked point from different sides. One coordinate frame lets a location set by either agent be found by the other.</figcaption>
+  </figure>
+
+  <h2>12. Conclusion</h2>
+  <p class="first">Field work runs on the transfer of information between a record and the world, and registration removes that transfer by placing the record on the asset while the worker keeps both hands free. On lightweight see-through glasses the behaviour is hard to obtain, because the device withholds head position, the panel optics defeat a first-guess calibration, the environment couples its failure modes, and the power and thermal limits are severe.</p>
+  <p>We reported a working implementation on RayNeo X3 Pro glasses. A signed third-party application recovers the head pose the interface does not publish, derives the stereo projection from the device optics, and draws registered content through a system surface with no game engine in the path. Content keeps its place in the room as the wearer circles it, and the presentation path is lean enough to fit the device and keep delay low.</p>
+  <p>The capability carries across domains without change. From parking enforcement to airport aprons to the cold aisle of a data hall, the loop is the same, and only the recognition model and the record change. Solving the one hard common problem once is why a narrow result deserves a careful report. Every field ambition in the programme reuses it.</p>
+
+  <p class="closing">This report describes a demonstrated engineering result and its operational context. Capabilities are labelled throughout as demonstrated, prototype, operational target, planned, research direction, or speculative. Internal methods are held back by intent.</p>
+
+  <h2>References</h2>
+  <div class="refs">
+    <ol>
+      <li>A. J. Davison, I. D. Reid, N. D. Molton, and O. Stasse, &ldquo;MonoSLAM: Real-Time Single Camera SLAM,&rdquo; <em>IEEE Trans. Pattern Anal. Mach. Intell.</em>, 2007. https://doi.org/10.1109/TPAMI.2007.1049</li>
+      <li>G. Klein and D. Murray, &ldquo;Parallel Tracking and Mapping for Small AR Workspaces,&rdquo; <em>ISMAR</em>, 2007. https://doi.org/10.1109/ISMAR.2007.4538852</li>
+      <li>R. Mur-Artal, J. M. M. Montiel, and J. D. Tardos, &ldquo;ORB-SLAM: A Versatile and Accurate Monocular SLAM System,&rdquo; <em>IEEE Trans. Robotics</em>, 2015. https://arxiv.org/abs/1502.00956</li>
+      <li>C. Campos, R. Elvira, J. J. G. Rodriguez, J. M. M. Montiel, and J. D. Tardos, &ldquo;ORB-SLAM3: An Accurate Open-Source Library for Visual, Visual-Inertial, and Multimap SLAM,&rdquo; <em>IEEE Trans. Robotics</em>, 2021. https://arxiv.org/abs/2007.11898</li>
+      <li>A. I. Mourikis and S. I. Roumeliotis, &ldquo;A Multi-State Constraint Kalman Filter for Vision-Aided Inertial Navigation,&rdquo; <em>ICRA</em>, 2007. https://doi.org/10.1109/ROBOT.2007.364024</li>
+      <li>T. Qin, P. Li, and S. Shen, &ldquo;VINS-Mono: A Robust and Versatile Monocular Visual-Inertial State Estimator,&rdquo; <em>IEEE Trans. Robotics</em>, 2018. https://arxiv.org/abs/1708.03852</li>
+      <li>C. Forster, L. Carlone, F. Dellaert, and D. Scaramuzza, &ldquo;On-Manifold Preintegration for Real-Time Visual-Inertial Odometry,&rdquo; <em>IEEE Trans. Robotics</em>, 2017. https://arxiv.org/abs/1512.02363</li>
+      <li>J. Engel, V. Koltun, and D. Cremers, &ldquo;Direct Sparse Odometry,&rdquo; <em>IEEE Trans. Pattern Anal. Mach. Intell.</em>, 2018. https://arxiv.org/abs/1607.02565</li>
+      <li>Z. Zhang, &ldquo;A Flexible New Technique for Camera Calibration,&rdquo; <em>IEEE Trans. Pattern Anal. Mach. Intell.</em>, 2000. https://doi.org/10.1109/34.888718</li>
+      <li>J. Kannala and S. S. Brandt, &ldquo;A Generic Camera Model and Calibration Method for Conventional, Wide-Angle, and Fish-Eye Lenses,&rdquo; <em>IEEE Trans. Pattern Anal. Mach. Intell.</em>, 2006. https://doi.org/10.1109/TPAMI.2006.153</li>
+      <li>M. Tuceryan, Y. Genc, and N. Navab, &ldquo;Single-Point Active Alignment Method (SPAAM) for Optical See-Through HMD Calibration,&rdquo; <em>Presence</em>, 2002. https://doi.org/10.1162/105474602317473213</li>
+      <li>J. Grubert, Y. Itoh, K. Moser, and J. E. Swan II, &ldquo;A Survey of Calibration Methods for Optical See-Through Head-Mounted Displays,&rdquo; <em>IEEE Trans. Vis. Comput. Graph.</em>, 2018. https://arxiv.org/abs/1709.04299</li>
+      <li>R. T. Azuma, &ldquo;A Survey of Augmented Reality,&rdquo; <em>Presence</em>, 1997. https://doi.org/10.1162/pres.1997.6.4.355</li>
+      <li>E. Kruijff, J. E. Swan II, and S. Feiner, &ldquo;Perceptual Issues in Augmented Reality Revisited,&rdquo; <em>ISMAR</em>, 2010. https://doi.org/10.1109/ISMAR.2010.5643530</li>
+      <li>P. Lincoln et al., &ldquo;From Motion to Photons in 80 Microseconds: Towards Minimal Latency for Virtual and Augmented Reality,&rdquo; <em>IEEE Trans. Vis. Comput. Graph.</em>, 2016. https://doi.org/10.1109/TVCG.2016.2518038</li>
+      <li>The Khronos Group, &ldquo;OpenXR Specification,&rdquo; 2024. https://registry.khronos.org/OpenXR/</li>
+      <li>The Khronos Group, &ldquo;OpenGL ES 3.2 Specification,&rdquo; 2019. https://registry.khronos.org/OpenGL/specs/es/3.2/es_spec_3.2.pdf</li>
+      <li>Google, &ldquo;Android Graphics Architecture: SurfaceFlinger, BufferQueue, and Choreographer,&rdquo; Android Open Source Project documentation. https://source.android.com/docs/core/graphics</li>
+      <li>Google, &ldquo;Android NDK Developer Guide,&rdquo; 2024. https://developer.android.com/ndk/guides</li>
+      <li>RayNeo, &ldquo;RayNeo XR OpenXR ARDK and Developer Documentation,&rdquo; RayNeo Inc., developer documentation.</li>
+      <li>M. Grieves and J. Vickers, &ldquo;Digital Twin: Mitigating Unpredictable, Undesirable Emergent Behavior in Complex Systems,&rdquo; in <em>Transdisciplinary Perspectives on Complex Systems</em>, Springer, 2017. https://doi.org/10.1007/978-3-319-38756-7_4</li>
+      <li>F. Tao, H. Zhang, A. Liu, and A. Y. C. Nee, &ldquo;Digital Twin in Industry: State-of-the-Art,&rdquo; <em>IEEE Trans. Ind. Informatics</em>, 2019. https://doi.org/10.1109/TII.2018.2873186</li>
+      <li>A. Radford et al., &ldquo;Learning Transferable Visual Models From Natural Language Supervision (CLIP),&rdquo; <em>ICML</em>, 2021. https://arxiv.org/abs/2103.00020</li>
+      <li>A. Kirillov et al., &ldquo;Segment Anything,&rdquo; <em>ICCV</em>, 2023. https://arxiv.org/abs/2304.02643</li>
+      <li>A. Radford et al., &ldquo;Robust Speech Recognition via Large-Scale Weak Supervision (Whisper),&rdquo; 2022. https://arxiv.org/abs/2212.04356</li>
+      <li>Google, &ldquo;ARCore Geospatial API,&rdquo; developer documentation. https://developers.google.com/ar/develop/geospatial</li>
+      <li>Khronos Group, &ldquo;glTF 2.0 Specification,&rdquo; 2021. https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html</li>
+    </ol>
+  </div>
+
+</div>
+</body>
+</html>

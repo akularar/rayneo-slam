@@ -1,2 +1,6 @@
 out/
 *.dex
+
+# RayNeo proprietary client SDK -- not redistributed; see README "RayNeo client libraries"
+app/libs/client.jar
+app/jni/arm64-v8a/*.so

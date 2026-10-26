@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.akular.rayneo.slam">
+
+    <uses-sdk android:minSdkVersion="30" />
+
+    <!-- Android 11+ package visibility: needed to see/bind the RayNeo runtime -->
+    <queries>
+        <package android:name="com.rayneo.xr.runtime" />
+    </queries>
+</manifest>

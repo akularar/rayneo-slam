@@ -9,6 +9,10 @@ import android.opengl.GLUtils;
 import android.opengl.Matrix;
 import android.util.Log;
 
+import com.akular.rayneo.slam.Pose;
+import com.akular.rayneo.slam.RayNeoSlam;
+import com.akular.rayneo.slam.StereoCamera;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -23,26 +27,13 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 /**
- * GLES2 port of the Canvas renderer: same Unity "Slam.unity" replica scene
- * (GRID x GRID solid cube grid + world-axis triad) plus a GLB model, stereo
- * side-by-side via per-eye viewport/scissor. The pose->camera convention is
- * the SOLVED preset 3 (q world->head via z-flip, flip Y, keep Z, tz=-1) —
- * identical math to the old software `project()`, expressed as matrices:
- *
- *   cam = S * Rwh * (p - t),  S = diag(1,-1,1),  t = [tx, ty, -tz_raw]
- *   u = fx*camX/camZ + cx,  v = fy*camY/camZ + cy   (v down, camZ forward)
- *
- * so the projection matrix maps that CV-style camera to GL NDC (y flip folded
- * in; cx,cy are exactly the eye-half centre so there are no offset terms).
+ * Sample scene: the Unity "Slam.unity" replica (GRID x GRID solid cube grid +
+ * world-axis triad) plus a GLB model, drawn once per eye with the library's
+ * {@link StereoCamera}. All pose/convention handling lives in the library.
  */
 class GlRenderer implements GLSurfaceView.Renderer {
 
     private static final String TAG = "PoseProbe";
-
-    // per-eye intrinsics {fx, fy, cx, cy} at 640x480, from getRenderInstriParameters
-    private static final float[] K_L = {1494.03f, 1505.34f, 320f, 240f};
-    private static final float[] K_R = {1494.51f, 1501.43f, 320f, 240f};
-    private static final float NEAR = 0.10f, FAR = 100f;
 
     private static final float AXIS = 0.4f;   // triad arm length, metres
 
@@ -70,14 +61,10 @@ class GlRenderer implements GLSurfaceView.Renderer {
     private static final float MODEL_HEIGHT = 0.4f;
     private static final float[] LIGHT_DIR = norm3(0.35f, 0.85f, -0.4f);
 
-    /**
-     * Sign of the SLAM position's Z relative to the rotation's world frame.
-     * -1 confirmed on hardware: at +1 the cube fled the wearer on approach.
-     */
-    private static final int tz = -1;
-
     private final Context ctx;
-    private volatile float[] tHead, qHead;
+    private final RayNeoSlam slam;
+    private final StereoCamera camera = new StereoCamera();
+    private final Pose pose = new Pose();
 
     // GL objects — rebuilt on every surface (re)create, so plain fields are fine
     private int colorProg, texProg;
@@ -87,53 +74,18 @@ class GlRenderer implements GLSurfaceView.Renderer {
     private int triadVbo;
     private final List<GlPart> modelParts = new ArrayList<>();
     private final float[] modelM = new float[16];
-    private int surfW, surfH;
     private boolean loggedFrame;
 
     // per-frame scratch, reused so onDrawFrame allocates nothing
-    private final float[] fRwh = new float[9];
-    private final float[] fT = new float[3];
-    private final float[] fView = new float[16];
     private final float[] fVp = new float[16];
     private final float[] fMvp = new float[16];
-    private final float[] fProjL = new float[16];   // constant per surface
-    private final float[] fProjR = new float[16];
-
-    // pose-change gate for RENDERMODE_WHEN_DIRTY: only redraw on a new pose
-    private final float[] lastT = new float[3];
-    private final float[] lastQ = new float[4];
-    private boolean havePose;
-    private static final float POSE_EPS = 1e-5f;
 
     private static class GlPart {
         int vbo, ibo, tex, idxCount;
         float[] baseColor;
     }
 
-    GlRenderer(Context ctx) { this.ctx = ctx; }
-
-    // ------------------------------------------------------------------ pose
-
-    /** @return true if this is a new, different pose (caller should requestRender). */
-    boolean setPose(float[] t, float[] q) {
-        boolean valid = t != null && q != null && t.length >= 3 && q.length >= 4
-                && !Float.isNaN(t[0]) && !Float.isNaN(t[1]) && !Float.isNaN(t[2])
-                && !(q[0] == 0 && q[1] == 0 && q[2] == 0 && q[3] == 0);
-        if (!valid) return false;
-        tHead = t; qHead = q;
-        boolean changed = !havePose
-                || diff(t[0], lastT[0]) || diff(t[1], lastT[1]) || diff(t[2], lastT[2])
-                || diff(q[0], lastQ[0]) || diff(q[1], lastQ[1])
-                || diff(q[2], lastQ[2]) || diff(q[3], lastQ[3]);
-        if (changed) {
-            lastT[0] = t[0]; lastT[1] = t[1]; lastT[2] = t[2];
-            lastQ[0] = q[0]; lastQ[1] = q[1]; lastQ[2] = q[2]; lastQ[3] = q[3];
-            havePose = true;
-        }
-        return changed;
-    }
-
-    private static boolean diff(float a, float b) { return Math.abs(a - b) > POSE_EPS; }
+    GlRenderer(Context ctx, RayNeoSlam slam) { this.ctx = ctx; this.slam = slam; }
 
     // ------------------------------------------------------------- lifecycle
 
@@ -182,10 +134,7 @@ class GlRenderer implements GLSurfaceView.Renderer {
 
     @Override
     public void onSurfaceChanged(GL10 unused, int w, int h) {
-        surfW = w; surfH = h;
-        int half = w / 2;
-        proj(K_L, half, h, fProjL);    // intrinsics + eye size are fixed -> compute once
-        proj(K_R, half, h, fProjR);
+        camera.setSurfaceSize(w, h);
         Log.i(TAG, "GL surface " + w + "x" + h);
     }
 
@@ -194,21 +143,14 @@ class GlRenderer implements GLSurfaceView.Renderer {
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
 
-        float[] th = tHead, q = qHead;
-        if (th == null || q == null) return;   // not localized yet
-        fT[0] = th[0]; fT[1] = th[1]; fT[2] = tz * th[2];
+        // read the pose here, not at poll time, so each frame uses the freshest one
+        if (!slam.getPose(pose)) return;   // not localized yet
+        camera.update(pose);
 
-        // preset 3: q is head->world in a Z-flipped frame -> world->head = R([x,y,-z,w])
-        quatToR(q[0], q[1], -q[2], q[3], fRwh);
-        view(fRwh, fT, fView);
-
-        int half = surfW / 2;
         GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
         for (int eye = 0; eye < 2; eye++) {
-            int xoff = eye * half;
-            GLES20.glViewport(xoff, 0, half, surfH);
-            GLES20.glScissor(xoff, 0, half, surfH);
-            Matrix.multiplyMM(fVp, 0, eye == 0 ? fProjL : fProjR, 0, fView, 0);
+            camera.applyViewport(eye);
+            camera.getViewProjection(eye, fVp);
             drawScene(fVp);
         }
         if (!loggedFrame) {
@@ -219,27 +161,6 @@ class GlRenderer implements GLSurfaceView.Renderer {
     }
 
     // ------------------------------------------------------------- matrices
-
-    /** CV intrinsics -> GL projection (column-major), into m. cx,cy == half centre.
-     *  m keeps its zero entries between calls (they are never written elsewhere). */
-    private static void proj(float[] K, int w, int h, float[] m) {
-        m[0] = 2f * K[0] / w;
-        m[5] = -2f * K[1] / h;                    // v grows down -> NDC y up
-        m[10] = (FAR + NEAR) / (FAR - NEAR);
-        m[11] = 1f;                               // w_clip = +camZ (Z forward)
-        m[14] = -2f * FAR * NEAR / (FAR - NEAR);
-    }
-
-    /** World -> camera: cam = S*Rwh*(p - t), S = diag(1,-1,1). Column-major, into v. */
-    private static void view(float[] Rwh, float[] t, float[] v) {
-        v[0] = Rwh[0]; v[4] = Rwh[1]; v[8]  = Rwh[2];
-        v[1] = -Rwh[3]; v[5] = -Rwh[4]; v[9] = -Rwh[5];
-        v[2] = Rwh[6]; v[6] = Rwh[7]; v[10] = Rwh[8];
-        v[12] = -(v[0]*t[0] + v[4]*t[1] + v[8]*t[2]);
-        v[13] = -(v[1]*t[0] + v[5]*t[1] + v[9]*t[2]);
-        v[14] = -(v[2]*t[0] + v[6]*t[1] + v[10]*t[2]);
-        v[15] = 1f;
-    }
 
     private static float[] quatToR(float[] q) {
         float[] r = new float[9];

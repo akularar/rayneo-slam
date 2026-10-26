@@ -19,8 +19,16 @@ third-party app. That is now **proven on hardware** (see Status).
 | Stereo side-by-side rendering into a normal Surface | ✅ works |
 | Cube renders per-eye | ✅ renders |
 | Projection / frame convention | ✅ **SOLVED = preset P3** |
-| Live **6DoF** (translation) from pure Java | ❌ **impossible — needs a native call** |
-| Cube is **world-locked** | ❌ blocked on 6DoF only |
+| Live **6DoF** (translation) | ✅ via native shim (`trackerAlgorithm=0x2001` + `EnableSlamHeadTracker`) — not reachable from pure Java |
+| Cube is **world-locked** | ✅ verified walking on hardware |
+| Packaged as a library | ✅ `lib/` → `out/rayneo-slam-0.1.0.aar` (`com.akular.rayneo.slam`), `app/` is the sample |
+
+**Current state (2026-10-26):** the work is now a library. `RayNeoSlam` (bring-up + pose),
+`StereoCamera` (P3 convention + per-eye intrinsics), `Pose`. Public docs: `README.md`,
+`CHANGELOG.md`. Repo is private, license proprietary; RayNeo binaries (`client.jar`,
+`libRayNeoXR*.so`) are **gitignored** and must be present locally to build.
+
+The sections below "The open problem" are kept as the history of how 6DoF was unlocked.
 
 ### Projection convention — SOLVED, do not re-solve
 
@@ -29,7 +37,7 @@ cycling 8 candidates and having the wearer describe a drawn world-axis triad; we
 reports red=+X right, green=+Y up, blue=+Z away, and the cube holds still under yaw and
 pitch. **Rendering needs no further work.**
 
-### The open problem (current task): translation is missing
+### (Solved) The former open problem: translation was missing
 
 Rotation is live; **translation is not**. Measured: wearer walked 1–2 m, position span
 was 2.5–3.7 cm — noise. `t` also swings with pitch and returns when the head returns, i.e.
@@ -48,8 +56,10 @@ said `0 == OK`. **Wrong.** From `Algorithm.cs` (`SlamState`):
 | 1 | `FFVINS_TRACKING_SUCCESS` — tracking |
 | 2 | `FFVINS_TRACKING_FAIL` |
 
-A persistent `0` means SLAM never started. **Poll for `1`** — that is the real success
-signal, far better than eyeballing translation.
+⚠️ **But in practice it never reports `1`.** Measured 2026-10-26: `XRWarp_GetHeadTrackerStatus`
+read `0` for all 157 samples while SLAM was demonstrably tracking (0.4–0.8 m translation,
+world-lock holding). **Do not gate on status.** The library judges validity from the pose
+(non-NaN position, non-zero quaternion).
 
 ---
 
@@ -73,31 +83,35 @@ Toolchain (all offline, no Gradle, no network):
 
 ```bash
 cd /mnt/d/Work/RayNeo/rayneo-native-cube
-bash build.sh            # javac -> jar -> d8 -> aapt2 link -> inject dex+libs -> zipalign -> apksigner
-# => out/poseprobe.apk
+bash build.sh            # lib: clang shim + javac -> AAR;  app: javac -> d8 -> aapt2 -> inject -> zipalign -> sign
+# => out/rayneo-slam-0.1.0.aar, out/poseprobe.apk
 
 ADB="/mnt/c/Users/Zigzee/Android/Sdk/platform-tools/adb.exe -s A06B4A8D2D2A313"
 $ADB uninstall com.akular.poseprobe          # ALWAYS uninstall first (see gotchas)
 $ADB install "$(wslpath -w out/poseprobe.apk)"
+$ADB logcat -G 16M                           # SLAM spam evicts app logs from the default 64 KiB buffer
 $ADB logcat -c
 $ADB shell am start -n com.akular.poseprobe/.PoseProbeActivity
 ```
 
 Watch it:
 ```bash
-$ADB logcat -d -s PoseProbe:* | tail -30              # app logs
-$ADB logcat -d | grep -i "slam running" | tail -3      # SLAM DSP alive?
+$ADB logcat -d -s RayNeoSlam:* PoseProbe:* | tail -30   # library + sample logs
+$ADB logcat -d | grep -i "slam running" | tail -3        # SLAM DSP alive?
 ```
 
 ### Layout
 ```
-app/AndroidManifest.xml
-app/src/com/akular/poseprobe/PoseProbeActivity.java   # everything (bring-up + CubeView renderer)
-app/libs/client.jar                                   # com.rayneo.xr.* classes
-app/jni/arm64-v8a/*.so                                # 5 RayNeo client native libs
+lib/src/com/akular/rayneo/slam/   # RayNeoSlam, StereoCamera, Pose, SlamShim (package-private)
+lib/jni/slamshim.c                # native bridge (SetProp, Enable/DisableSlam, pose)
+lib/AndroidManifest.xml, lib/consumer-rules.pro
+app/src/com/akular/poseprobe/     # sample: PoseProbeActivity, GlRenderer, GlbModel
+app/libs/client.jar               # RayNeo, gitignored
+app/jni/arm64-v8a/*.so            # 3 RayNeo client libs, gitignored
 build.sh
-out/poseprobe.apk
 ```
+JNI names are `Java_com_akular_rayneo_slam_SlamShim_*` — renaming the package means
+renaming the C functions.
 `client.jar` + the `.so`s were extracted from the Unity ARDK aars at
 `/mnt/d/Work/RayNeo/rayneo-test/Packages/com.unity.xr.rayneo.openxr/OXR/Runtime/Plugins/Android/`
 (`RayNeoOpenXRLoader.aar`, `RayNeoSDK-client.aar`, `RayNeoUnityAdapter.aar`).
@@ -321,12 +335,12 @@ the wearer what they actually see.
 
 ---
 
-## Next steps after the cube is world-locked
+## Next steps (library)
 
-1. Lock in the winning convention; delete the preset cycling.
-2. Optional: hardcode IPD offset per eye for correct near-field depth.
-3. Optional: solid/shaded cube instead of wireframe.
-4. Optional: `RecenterHeadTracker()` binding to reset the anchor.
+1. Optional: per-eye IPD offset in `StereoCamera` for correct near-field depth.
+2. Optional: `RecenterHeadTracker()` binding to reset the anchor.
+3. Untested: whether `OpenIMU()` is needed for SLAM (official demo says no dependency);
+   dropping it might save power.
 
 ## Related
 

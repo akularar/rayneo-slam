@@ -21,7 +21,9 @@
 enum { OK = 0, E_NOLIB = -1, E_NOLOADER = -2, E_TABLE = -3, E_NOSYM = -4 };
 
 static void *lib(void) {
-    return dlopen(LIB, RTLD_NOW | RTLD_NOLOAD);   // NOLOAD: runtime's mapping only
+    static void *h;   // cached: each NOLOAD dlopen bumps the refcount, never dlclose'd
+    if (!h) h = dlopen(LIB, RTLD_NOW | RTLD_NOLOAD);   // NOLOAD: runtime's mapping only
+    return h;
 }
 
 static int table_ready(void *h) {
@@ -31,24 +33,9 @@ static int table_ready(void *h) {
     return vt && vt[0] && vt[SLOT];
 }
 
-/** Which mapping did we bind to, and is its vtable the populated one? */
-static void diag(void *h) {
-    void **(*getLoader)(void) = (void **(*)(void)) dlsym(h, "GetXRRuntimeLoader");
-    void **vt = getLoader ? getLoader() : 0;
-    Dl_info di;
-    if (dladdr((void *) getLoader, &di) && di.dli_fname)
-        LOG("diag: bound lib = %s", di.dli_fname);
-    LOG("diag: vtable=%p slot0=%p slot58=%p", (void *) vt,
-        vt ? vt[0] : 0, vt ? vt[SLOT] : 0);
-    int nz = 0;
-    if (vt) for (int i = 0; i < 156; i++) if (vt[i]) nz++;
-    LOG("diag: %d/156 slots populated", nz);
-}
-
 static int call_void(const char *sym) {
     void *h = lib();
     if (!h) { LOG("%s: %s not loaded (RTLD_NOLOAD)", sym, LIB); return E_NOLIB; }
-    diag(h);
     if (!dlsym(h, "GetXRRuntimeLoader")) { LOG("%s: no GetXRRuntimeLoader", sym); return E_NOLOADER; }
     if (!table_ready(h)) { LOG("%s: runtime table not populated", sym); return E_TABLE; }
     void (*fn)(void) = (void (*)(void)) dlsym(h, sym);
@@ -77,24 +64,6 @@ Java_com_akular_poseprobe_SlamShim_setPropInt(JNIEnv *e, jclass c, jstring jkey,
     LOG("SetProp(%s, 0x%x) -> %d", key, v, r);
     (*e)->ReleaseStringUTFChars(e, jkey, key);
     return r;
-}
-
-/** Read a prop back to confirm SetProp took. Returns the value, or <0 on failure. */
-JNIEXPORT jint JNICALL
-Java_com_akular_poseprobe_SlamShim_getPropInt(JNIEnv *e, jclass c, jstring jkey) {
-    void *h = lib();
-    if (!h || !table_ready(h)) return E_TABLE;
-    int (*fn)(const char *, void *, int *) =
-        (int (*)(const char *, void *, int *)) dlsym(h, "XRWarp_GetProp");
-    if (!fn) return E_NOSYM;
-
-    const char *key = (*e)->GetStringUTFChars(e, jkey, 0);
-    int32_t v = 0;
-    int len = (int) sizeof v;
-    int r = fn(key, &v, &len);
-    LOG("GetProp(%s) -> r=%d len=%d val=0x%x", key, r, len, v);
-    (*e)->ReleaseStringUTFChars(e, jkey, key);
-    return r == 0 ? (jint) v : E_NOSYM;
 }
 
 JNIEXPORT jint JNICALL

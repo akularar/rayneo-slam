@@ -24,7 +24,7 @@ import javax.microedition.khronos.opengles.GL10;
 
 /**
  * GLES2 port of the Canvas renderer: same Unity "Slam.unity" replica scene
- * (12x12 solid cube grid + world-axis triad) plus a GLB model, stereo
+ * (GRID x GRID solid cube grid + world-axis triad) plus a GLB model, stereo
  * side-by-side via per-eye viewport/scissor. The pose->camera convention is
  * the SOLVED preset 3 (q world->head via z-flip, flip Y, keep Z, tz=-1) —
  * identical math to the old software `project()`, expressed as matrices:
@@ -78,7 +78,6 @@ class GlRenderer implements GLSurfaceView.Renderer {
 
     private final Context ctx;
     private volatile float[] tHead, qHead;
-    volatile String modelStatus = "model: loading...";
 
     // GL objects — rebuilt on every surface (re)create, so plain fields are fine
     private int colorProg, texProg;
@@ -135,12 +134,6 @@ class GlRenderer implements GLSurfaceView.Renderer {
     }
 
     private static boolean diff(float a, float b) { return Math.abs(a - b) > POSE_EPS; }
-
-    /** Head position in the rotation's world frame, null until localized. */
-    float[] tw() {
-        float[] t = tHead;
-        return t == null ? null : new float[]{t[0], t[1], tz * t[2]};
-    }
 
     // ------------------------------------------------------------- lifecycle
 
@@ -202,7 +195,7 @@ class GlRenderer implements GLSurfaceView.Renderer {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
 
         float[] th = tHead, q = qHead;
-        if (th == null || q == null) return;   // HUD shows "waiting"
+        if (th == null || q == null) return;   // not localized yet
         fT[0] = th[0]; fT[1] = th[1]; fT[2] = tz * th[2];
 
         // preset 3: q is head->world in a Z-flipped frame -> world->head = R([x,y,-z,w])
@@ -321,7 +314,7 @@ class GlRenderer implements GLSurfaceView.Renderer {
 
     // ----------------------------------------------------------- geometry
 
-    /** Whole grid baked world-space: 144 cubes x 24 verts (pos3+col3). */
+    /** Whole grid baked world-space: GRID*GRID cubes x 24 verts (pos3+col3). */
     private void buildGrid() {
         float[] hsv = {0f, 0.85f, 1f};
         int nCubes = GRID * GRID;
@@ -405,14 +398,12 @@ class GlRenderer implements GLSurfaceView.Renderer {
                     -(m.bboxMin[2] + m.bboxMax[2]) / 2f);
 
             for (GlbModel.Part p : m.parts) modelParts.add(upload(p));
-            modelStatus = String.format("model: %smodel.glb %d tris, %.2fm raw h, x%.3f",
-                    src, m.totalTris, bh, sc);
-            Log.i(TAG, modelStatus + String.format(
-                    "  bbox [%.2f %.2f %.2f]..[%.2f %.2f %.2f]",
+            Log.i(TAG, String.format("model: %smodel.glb %d tris, %.2fm raw h, x%.3f"
+                    + "  bbox [%.2f %.2f %.2f]..[%.2f %.2f %.2f]",
+                    src, m.totalTris, bh, sc,
                     m.bboxMin[0], m.bboxMin[1], m.bboxMin[2],
                     m.bboxMax[0], m.bboxMax[1], m.bboxMax[2]));
         } catch (Throwable t) {
-            modelStatus = "model: FAILED " + t.getMessage();
             Log.e(TAG, "model load failed", t);
         }
     }

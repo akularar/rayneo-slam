@@ -19,7 +19,6 @@ final class SlamShim {
     static final int DOF3 = 0x1001, SLAM = 0x2001;
 
     static native int setPropInt(String key, int value);
-    static native int getPropInt(String key);
     static native int enableSlam();
     static native int disableSlam();
     static native int status();

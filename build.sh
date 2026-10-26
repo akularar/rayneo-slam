@@ -6,7 +6,7 @@ set -euo pipefail
 PROJ="/mnt/d/Work/RayNeo/rayneo-native-cube"
 SDK="/mnt/c/Users/Zigzee/Android/Sdk"
 BT="$SDK/build-tools/35.0.0"
-JDK="/mnt/c/Program Files/Unity/Hub/Editor/2022.3.62f2/Editor/Data/PlaybackEngines/AndroidPlayer/OpenJDK/bin"
+JDK="/mnt/c/Program Files/Unity/Hub/Editor/6000.3.10f1/Editor/Data/PlaybackEngines/AndroidPlayer/OpenJDK/bin"
 
 JAVAC="$JDK/javac.exe"
 JAVA="$JDK/java.exe"

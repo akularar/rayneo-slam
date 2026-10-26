@@ -65,7 +65,7 @@ signal, far better than eyeballing translation.
 Toolchain (all offline, no Gradle, no network):
 - Android SDK: `/mnt/c/Users/Zigzee/Android/Sdk` (build-tools 35.0.0, platforms android-35/36)
 - JDK (javac/java/jar/keytool/**javap**): Unity's bundled OpenJDK
-  `/mnt/c/Program Files/Unity/Hub/Editor/2022.3.62f2/Editor/Data/PlaybackEngines/AndroidPlayer/OpenJDK/bin`
+  `/mnt/c/Program Files/Unity/Hub/Editor/6000.3.10f1/Editor/Data/PlaybackEngines/AndroidPlayer/OpenJDK/bin`
 
 ---
 
